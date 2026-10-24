@@ -326,7 +326,7 @@ var updatePermalink = function() {
       Math.round(center[0] * 100) / 100 + '/' +
       Math.round(center[1] * 100) / 100 + '/' +
       view.getRotation();
-   if ( plot_nrs!= [' ']) {
+   if (plot_nrs.some(nr => nr.trim() !== '')) {
        hash = hash + '/0/' +  plot_nrs.join("+");
    } 
   var state = {
