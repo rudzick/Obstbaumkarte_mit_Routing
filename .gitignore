@@ -1,2 +1,6 @@
 node_modules
 dist
+graphhopper/*.jar
+graphhopper/data/
+graphhopper/graph-cache/
+graphhopper/logs/

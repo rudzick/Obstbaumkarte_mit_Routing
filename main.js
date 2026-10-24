@@ -17,6 +17,7 @@ import TileJSON from 'ol/source/TileJSON.js';
 import {defaults as defaultControls, Attribution, ScaleLine, FullScreen, Control, Rotate} from 'ol/control';
 import {circular} from 'ol/geom/Polygon';
 import kompas from 'kompas';
+import {addRouting} from './routing.js';
 
 const allotment_number_field = document.createElement('input');
 allotment_number_field.className = 'ol-control button';
@@ -272,6 +273,8 @@ const map = new Map({
     controls: defaultControls({attribution: false}).extend([attribution,massstab,new FullScreen(), new Rotate(), new FindAllotmentPlots()]),
     //   controls: defaultControls({attribution: true}).extend([attribution,massstab,new FullScreen()]),
 });
+
+addRouting(map);
 
 map.on('pointermove', showInfo);
 

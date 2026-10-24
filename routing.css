@@ -1,0 +1,106 @@
+.routing-button {
+    top: 8.5em;
+    left: .5em;
+}
+
+.routing-panel {
+    position: absolute;
+    top: 2.5em;
+    left: 3em;
+    width: 20em;
+    max-height: calc(100% - 4em);
+    overflow-y: auto;
+    box-sizing: border-box;
+    padding: .6em;
+    background: var(--ol-background-color, white);
+    color: var(--ol-foreground-color, #333);
+    border-radius: 4px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+    font-family: verdana, sans-serif;
+    font-size: 13px;
+}
+
+.routing-panel select,
+.routing-panel input,
+.routing-go {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: .4em;
+    padding: .3em;
+    font: inherit;
+}
+
+.routing-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: .5em;
+}
+
+.routing-close,
+.routing-swap {
+    border: 0;
+    background: none;
+    font-size: 1.4em;
+    cursor: pointer;
+    color: inherit;
+}
+
+.routing-endpoints {
+    display: flex;
+    align-items: center;
+    gap: .3em;
+}
+
+.routing-inputs {
+    flex: 1;
+}
+
+.routing-start {
+    border-left: 4px solid #2a9d3a;
+}
+
+.routing-end {
+    border-left: 4px solid #d62828;
+}
+
+.routing-go {
+    cursor: pointer;
+}
+
+.routing-status {
+    font-weight: bold;
+    margin: .3em 0;
+}
+
+.routing-instructions {
+    margin: 0;
+    padding-left: 1.6em;
+}
+
+.routing-instructions li {
+    padding: .25em 0;
+    border-top: 1px solid #eee;
+    cursor: pointer;
+}
+
+.routing-instructions li:hover {
+    background: #f2f6fc;
+}
+
+.routing-distance {
+    float: right;
+    color: #777;
+    margin-left: .5em;
+}
+
+@media (max-width: 600px) {
+    .routing-panel {
+        top: auto;
+        bottom: .5em;
+        left: .5em;
+        right: .5em;
+        width: auto;
+        max-height: 50%;
+    }
+}

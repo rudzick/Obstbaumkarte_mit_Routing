@@ -1,0 +1,6 @@
+// Ergänzung zu GraphHoppers foot.json: Hauptverkehrsstraßen etwas meiden.
+{
+  "priority": [
+    { "if": "(road_class == PRIMARY || road_class == SECONDARY || road_class == TRUNK)", "multiply_by": "0.7" }
+  ]
+}

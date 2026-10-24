@@ -1,0 +1,70 @@
+# GraphHopper-Konfiguration für die Obstbaumkarte (GraphHopper 11.1, Berlin-Extrakt)
+#
+# Nach Änderungen an Profilen oder Custom Models muss der Graph neu gebaut werden:
+#   rm -rf graph-cache && ./start.sh
+
+graphhopper:
+  datareader.file: data/berlin-latest.osm.pbf
+  graph.location: graph-cache
+
+  # Eigene Custom Models liegen hier; car.json, foot.json, bike.json und
+  # car_avoid_private_etc.json sind in GraphHopper eingebaut.
+  custom_models.directory: custom_models
+
+  profiles:
+    - name: foot
+      custom_model_files: [foot.json, foot_obstbaum.json]
+
+    - name: bike
+      custom_model_files: [bike.json, bike_obstbaum.json]
+
+    - name: wheelchair
+      custom_model_files: [wheelchair.json]
+
+    - name: car
+      turn_costs:
+        vehicle_types: [motorcar, motor_vehicle]
+        u_turn_costs: 60
+      custom_model_files: [car.json, car_avoid_private_etc.json]
+
+  # Contraction Hierarchies für schnelle Anfragen bei allen Profilen
+  profiles_ch:
+    - profile: foot
+    - profile: bike
+    - profile: wheelchair
+    - profile: car
+  profiles_lm: []
+
+  graph.encoded_values: >-
+    car_access|block_private=false, car_average_speed, road_access,
+    foot_access, foot_priority, foot_average_speed, foot_road_access,
+    bike_access, bike_priority, bike_average_speed, bike_road_access,
+    roundabout, road_class, country, hike_rating, mtb_rating,
+    surface, smoothness, track_type
+
+  # leer: alle Wege importieren, da es Fuß-, Rad- und Autoprofile gibt
+  import.osm.ignored_highways: ""
+  prepare.min_network_size: 200
+  prepare.subnetworks.threads: 1
+  routing.snap_preventions_default: tunnel, bridge, ferry
+  routing.non_ch.max_waypoint_distance: 1000000
+  graph.dataaccess.default_type: RAM_STORE
+
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+      bind_host: localhost
+      max_request_header_size: 50k
+  request_log:
+    appenders: []
+  admin_connectors:
+    - type: http
+      port: 8990
+      bind_host: localhost
+
+logging:
+  appenders:
+    - type: console
+      time_zone: UTC
+      log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
