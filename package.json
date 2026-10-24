@@ -10,7 +10,7 @@
     "vite": "^4.0.4"
   },
   "dependencies": {
-    "kompas": "^0.0.1",
+    "kompas": "^1.0.0",
     "ol": "latest"
   }
 }
