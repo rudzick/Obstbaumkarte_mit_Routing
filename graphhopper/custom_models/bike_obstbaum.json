@@ -2,16 +2,8 @@
 {
    "priority": [
     {
-      "if": "my_sperrgebiet == YES && is_start",
-      "multiply_by": "1.0"
-    },
-    {
-      "else_if": "my_sperrgebiet == YES && is_destination",
-      "multiply_by": "1.0"
-    },
-    {
-      "else_if": "my_sperrgebiet == YES",
-      "multiply_by": "0.0"
+      "if": "hazmat == NO",
+      "set_to": "1.0"
     },
     { "if": "surface == COBBLESTONE", "multiply_by": "0.5" },
     { "if": "smoothness == BAD || smoothness == VERY_BAD", "multiply_by": "0.6" }

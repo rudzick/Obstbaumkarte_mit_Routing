@@ -4,16 +4,8 @@
 {
    "priority": [
     {
-      "if": "my_sperrgebiet == YES && is_start",
-      "multiply_by": "1.0"
-    },
-    {
-      "else_if": "my_sperrgebiet == YES && is_destination",
-      "multiply_by": "1.0"
-    },
-    {
-      "else_if": "my_sperrgebiet == YES",
-      "multiply_by": "0.0"
+      "if": "hazmat == NO",
+      "set_to": "1.0"
     },	
     { "if": "!foot_access || road_class == STEPS || hike_rating >= 1", "multiply_by": "0" },
     { "else": "", "multiply_by": "foot_priority" },

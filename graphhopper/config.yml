@@ -36,13 +36,8 @@ graphhopper:
     - profile: car
   profiles_lm: []
 
-  # Hinzufuegen von mein_sperrgebiet fuer Ausnahmen von durch landuse definierte Sperrgebiete
-  graph.encoded_values: >-
-    car_access|block_private=false, car_average_speed, road_access,
-    foot_access, foot_priority, foot_average_speed, foot_road_access,
-    bike_access, bike_priority, bike_average_speed, bike_road_access,
-    roundabout, road_class, country, hike_rating, mtb_rating,
-    surface, smoothness, track_type, mein_sperrgebiet
+  # Hinzufuegen von hazmat fuer Ausnahmen von durch landuse definierte Sperrgebiete
+  graph.encoded_values: car_access|block_private=false, car_average_speed, road_access, foot_access, foot_priority, foot_average_speed, foot_road_access, bike_access, bike_priority, bike_average_speed, bike_road_access, roundabout, road_class, country, hike_rating, mtb_rating, surface, smoothness, track_type, hazmat
 
   # leer: alle Wege importieren, da es Fuß-, Rad- und Autoprofile gibt
   import.osm.ignored_highways: ""

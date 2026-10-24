@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 import osmium
 from shapely.geometry import shape
 from shapely.strtree import STRtree
@@ -46,7 +47,8 @@ class WayTaggerWriter(osmium.SimpleHandler):
                 if is_inside:
                     # Tags modifizieren: Neues Custom-Tag hinzufügen
                     modified_tags = dict(w.tags)
-                    modified_tags['mein_sperrgebiet'] = 'yes'
+                    modified_tags['hazmat'] = 'no'
+                    modified_tags['access'] = 'yes'
                     
                     # Kopie des Ways mit den neuen Tags schreiben
                     w = w.replace(tags=modified_tags)
@@ -62,7 +64,7 @@ class WayTaggerWriter(osmium.SimpleHandler):
 print("Analysiere Landuse-Flächen...")
 handler = LanduseIntersectionHandler()
 # 'with_locations=True' stellt sicher, dass Flächen Geometrie besitzen
-handler.apply_file("deine_region.osm.pbf", locations=True)
+handler.apply_file("data/berlin-latest.osm.pbf", locations=True)
 
 # Erstelle einen schnellen räumlichen Suchbaum (R-Tree)
 tree = STRtree(handler.polygons)
