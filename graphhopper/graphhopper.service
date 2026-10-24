@@ -1,0 +1,21 @@
+# systemd-Unit für GraphHopper auf dem Server
+# Installation: cp graphhopper.service /etc/systemd/system/ && systemctl enable --now graphhopper
+[Unit]
+Description=GraphHopper Routing für die Obstbaumkarte
+After=network.target
+
+[Service]
+User=graphhopper
+Group=graphhopper
+WorkingDirectory=/opt/graphhopper
+ExecStart=/opt/graphhopper/start.sh
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/graphhopper
+
+[Install]
+WantedBy=multi-user.target
