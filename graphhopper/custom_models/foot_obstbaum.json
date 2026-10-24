@@ -1,6 +1,17 @@
-// Ergänzung zu GraphHoppers foot.json: Hauptverkehrsstraßen etwas meiden.
+// Ergänzung zu GraphHoppers foot.json: Bei bestimmten Sperrgebietn nur Durchfahrt vermeiden
 {
-  "priority": [
-    { "if": "(road_class == PRIMARY || road_class == SECONDARY || road_class == TRUNK)", "multiply_by": "0.7" }
+ "priority": [
+    {
+      "if": "my_sperrgebiet == YES && is_start",
+      "multiply_by": "1.0"
+    },
+    {
+      "else_if": "my_sperrgebiet == YES && is_destination",
+      "multiply_by": "1.0"
+    },
+    {
+      "else_if": "my_sperrgebiet == YES",
+      "multiply_by": "0.0"
+    }
   ]
 }
