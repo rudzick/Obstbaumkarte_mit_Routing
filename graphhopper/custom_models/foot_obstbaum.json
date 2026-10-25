@@ -1,9 +1,0 @@
-// Ergänzung zu GraphHoppers foot.json: Wege in Sperrgebieten (von tag_landuse.py mit hazmat=no markiert) nur als Ziel, nicht zur Durchquerung nutzen.
-{
- "priority": [
-    {
-      "if": "hazmat == NO",
-      "multiply_by": "0.1"
-    }
-  ]
-}

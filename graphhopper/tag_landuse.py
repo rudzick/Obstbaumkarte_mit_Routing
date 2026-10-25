@@ -3,9 +3,10 @@
 
 Wege (highway=*), die im Inneren einer Fläche mit landuse=<Wert> verlaufen, bekommen
 access=yes und ein Markierungs-Tag (Standard: hazmat=no). GraphHopper kann diese
-Wege so zwar nutzen, gibt ihnen über das Markierungs-Tag aber eine niedrige
-Priorität: Ziele im Sperrgebiet sind erreichbar, Routen führen aber nicht hindurch.
-Die landuse-Tags der Sperrgebiete werden entfernt.
+Wege so nutzen; über das Markierungs-Tag lassen sie sich in den Custom Models
+gesondert gewichten.
+Die Sperrgebiete selbst verlieren ihr landuse-Tag und ihre Zugangs-Tags (access,
+foot, motor_vehicle usw. samt Varianten wie access:conditional).
 
 Beispiel:
     tag_landuse.py data/berlin-latest.osm.pbf data/deine_region_modifiziert.osm.pbf --landuse military
@@ -18,6 +19,20 @@ import osmium
 from shapely import wkb
 from shapely.prepared import prep
 from shapely.strtree import STRtree
+
+# Schlüssel der OSM-Zugangshierarchie; Varianten wie access:conditional oder
+# foot:forward werden über den Teil vor dem ':' erkannt. emergency und wheelchair
+# fehlen absichtlich: an Flächen beschreiben sie Einrichtungen (Notaufnahme,
+# Barrierefreiheit), keinen Zugang.
+ACCESS_KEYS = {
+    'access', 'vehicle', 'motor_vehicle', 'motorcar', 'motorcycle', 'moped', 'mofa',
+    'hgv', 'goods', 'bus', 'psv', 'taxi', 'agricultural', 'forestry',
+    'bicycle', 'foot', 'horse',
+}
+
+
+def is_access_key(key):
+    return key.split(':', 1)[0] in ACCESS_KEYS
 
 
 class RestrictedAreaCollector(osmium.SimpleHandler):
@@ -53,6 +68,7 @@ class RestrictedWayTagger(osmium.SimpleHandler):
         self.factory = osmium.geom.WKBFactory()
         self.tagged = 0
         self.landuse_removed = 0
+        self.access_removed = 0
         self.marker_removed = 0
 
     def is_inside(self, way):
@@ -69,11 +85,15 @@ class RestrictedWayTagger(osmium.SimpleHandler):
         return False
 
     def strip_landuse(self, tags):
-        if tags.get('landuse') in self.landuse_values:
-            del tags['landuse']
-            self.landuse_removed += 1
-            return True
-        return False
+        """Entfernt landuse- und Zugangs-Tags einer Sperrgebietsfläche."""
+        if tags.get('landuse') not in self.landuse_values:
+            return False
+        del tags['landuse']
+        self.landuse_removed += 1
+        for k in [k for k in tags if is_access_key(k)]:
+            del tags[k]
+            self.access_removed += 1
+        return True
 
     def node(self, n):
         self.writer.add_node(n)
@@ -141,7 +161,8 @@ def main():
 
     marker = '='.join(args.marker)
     print(f'{tagger.tagged} Wege mit access=yes und {marker} markiert, '
-          f'{tagger.landuse_removed} landuse-Tags entfernt, '
+          f'{tagger.landuse_removed} landuse-Tags und {tagger.access_removed} Zugangs-Tags '
+          f'der Sperrgebiete entfernt, '
           f'{tagger.marker_removed} vorhandene {args.marker[0]}-Tags entfernt.')
 
 

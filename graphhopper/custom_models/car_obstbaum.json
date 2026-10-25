@@ -1,8 +1,0 @@
-{
-  "priority": [
-    {
-      "if": "hazmat == NO",
-      "multiply_by": "0.1"
-    }
-  ]
-}
