@@ -1,2 +1,3 @@
 rsync -avu -e "ssh -p 39125" dist/ root@mymapnik.rudzick.it:/var/www/Obstbaumkarte/
+rsync -avu -e "ssh -p 39125" graphhopper/ root@mymapnik.rudzick.it:/opt/graphhopper
 
