@@ -13,7 +13,7 @@ fi
 mkdir -p data
 curl -fL -o data/berlin-latest.osm.pbf https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf
 
-/opt/graphhopper/tag_landuse.py 
+./tag_landuse.py data/berlin-latest.osm.pbf data/deine_region_modifiziert.osm.pbf --landuse military
 
 # alter Graph passt nicht mehr zu den neuen Daten
 rm -rf graph-cache

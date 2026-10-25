@@ -3,7 +3,7 @@
    "priority": [
     {
       "if": "hazmat == NO",
-      "set_to": "1.0"
+      "multiply_by": "0.1"
     },
     { "if": "surface == COBBLESTONE", "multiply_by": "0.5" },
     { "if": "smoothness == BAD || smoothness == VERY_BAD", "multiply_by": "0.6" }

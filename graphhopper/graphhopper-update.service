@@ -1,0 +1,30 @@
+# Datenupdate für GraphHopper, ausgelöst von graphhopper-update.timer
+# Installation: cp graphhopper-update.service graphhopper-update.timer /etc/systemd/system/
+#               systemctl daemon-reload && systemctl enable --now graphhopper-update.timer
+[Unit]
+Description=Datenupdate für GraphHopper (Berlin-Extrakt)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=graphhopper
+Group=graphhopper
+WorkingDirectory=/opt/graphhopper
+ExecStart=/opt/graphhopper/update.sh
+# "+": Graph-Tausch und Neustart des Dienstes brauchen root
+ExecStartPost=+/opt/graphhopper/activate-graph.sh
+
+# niedrige Priorität und feste Speichergrenze, damit PostgreSQL/osm2pgsql nicht leiden
+Nice=19
+IOSchedulingClass=idle
+CPUWeight=10
+IOWeight=10
+MemoryHigh=4G
+MemoryMax=5G
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/graphhopper

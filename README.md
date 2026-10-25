@@ -31,4 +31,14 @@ Profile auf dem Server aktualisieren:
     rsync -a -e "ssh -p 39125" graphhopper/config.yml graphhopper/custom_models root@mymapnik.rudzick.it:/opt/graphhopper/
     ssh -p 39125 root@mymapnik.rudzick.it 'rm -rf /opt/graphhopper/graph-cache && chown -R graphhopper: /opt/graphhopper && systemctl restart graphhopper'
 
+Wöchentliches Datenupdate (installiert, aber noch nicht aktiviert): `graphhopper-update.timer`
+startet sonntags gegen 4:30 `graphhopper-update.service`. Der lädt den Berlin-Extrakt neu,
+taggt mit `tag_landuse.py` die Sperrgebiete und baut den Graphen in `graph-cache-new`
+(niedrigste CPU-/IO-Priorität, max. 5 GB RAM). Erst danach tauscht `activate-graph.sh`
+den Graphen ein und startet GraphHopper neu (nur wenn der Dienst läuft); antwortet er
+nicht, kommt der alte Graph zurück.
+
+    systemctl start graphhopper-update.service        # einmalig von Hand
+    systemctl enable --now graphhopper-update.timer   # wöchentlich aktivieren
+
 Alternativ lässt sich die URL beim Bauen setzen: `VITE_GRAPHHOPPER_URL=https://… npm run build`.

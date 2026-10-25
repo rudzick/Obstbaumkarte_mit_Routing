@@ -1,0 +1,10 @@
+[Unit]
+Description=Wöchentliches Datenupdate für GraphHopper
+
+[Timer]
+OnCalendar=Sun *-*-* 04:30
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

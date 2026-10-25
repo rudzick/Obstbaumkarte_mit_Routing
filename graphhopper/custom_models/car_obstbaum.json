@@ -2,7 +2,7 @@
   "priority": [
     {
       "if": "hazmat == NO",
-      "set_to": "1.0"
+      "multiply_by": "0.1"
     }
   ]
 }
