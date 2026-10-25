@@ -7,10 +7,15 @@ werden per Klick in die Karte gesetzt (Marker lassen sich verschieben) oder als 
 „Breite, Länge“ eingegeben (Ortssuche über Nominatim). Profile: Zu Fuß, Fahrrad,
 Rollstuhl / Kinderwagen, Auto.
 
-GraphHopper lokal einrichten und starten (Java 17+, ca. 3 GB RAM):
+GraphHopper lokal einrichten und starten (Java 17+):
 
-    ./graphhopper/setup.sh    # lädt GraphHopper 11.1 und den Berlin-Extrakt
-    ./graphhopper/start.sh    # baut beim ersten Start den Graphen (~2 min), dann http://localhost:8989
+    ./graphhopper/setup.sh    # lädt GraphHopper 11.1 und den Deutschland-Extrakt (~4,5 GB)
+    ./graphhopper/start.sh    # baut beim ersten Start den Graphen, dann http://localhost:8989
+
+Für Deutschland braucht GraphHopper ca. 10 GB RAM (`start.sh`), der Graph-Import ca. 14 GB.
+Zum Entwickeln reicht der Berlin-Extrakt (Graph in ~2 min, `-Xmx` in `start.sh` kann auf 3g):
+
+    PBF_URL=https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf ./graphhopper/setup.sh
 
 Der Vite-Dev-Server (`npm start`) leitet `/graphhopper/*` an `localhost:8989` weiter.
 
@@ -31,10 +36,10 @@ Profile auf dem Server aktualisieren:
     rsync -a -e "ssh -p 39125" graphhopper/config.yml graphhopper/custom_models root@mymapnik.rudzick.it:/opt/graphhopper/
     ssh -p 39125 root@mymapnik.rudzick.it 'rm -rf /opt/graphhopper/graph-cache && chown -R graphhopper: /opt/graphhopper && systemctl restart graphhopper'
 
-Wöchentliches Datenupdate (installiert, aber noch nicht aktiviert): `graphhopper-update.timer`
-startet sonntags gegen 4:30 `graphhopper-update.service`. Der lädt den Berlin-Extrakt neu,
+Wöchentliches Datenupdate (aktiviert): `graphhopper-update.timer`
+startet sonntags gegen 4:30 `graphhopper-update.service`. Der lädt den Deutschland-Extrakt neu,
 taggt mit `tag_landuse.py` die Sperrgebiete und baut den Graphen in `graph-cache-new`
-(niedrigste CPU-/IO-Priorität, max. 5 GB RAM). Erst danach tauscht `activate-graph.sh`
+(niedrigste CPU-/IO-Priorität, max. 20 GB RAM). Erst danach tauscht `activate-graph.sh`
 den Graphen ein und startet GraphHopper neu (nur wenn der Dienst läuft); antwortet er
 nicht, kommt der alte Graph zurück.
 

@@ -18,7 +18,7 @@ mv graph-cache-new graph-cache
 $was_active || exit 0
 
 systemctl start graphhopper
-for i in $(seq 1 60); do
+for i in $(seq 1 150); do
     curl -fs http://localhost:8989/health >/dev/null && exit 0
     sleep 2
 done

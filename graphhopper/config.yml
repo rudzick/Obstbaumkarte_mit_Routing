@@ -1,4 +1,4 @@
-# GraphHopper-Konfiguration für die Obstbaumkarte (GraphHopper 11.1, Berlin-Extrakt)
+# GraphHopper-Konfiguration für die Obstbaumkarte (GraphHopper 11.1, Deutschland-Extrakt)
 #
 # Nach Änderungen an Profilen oder Custom Models muss der Graph neu gebaut werden:
 #   rm -rf graph-cache && ./start.sh

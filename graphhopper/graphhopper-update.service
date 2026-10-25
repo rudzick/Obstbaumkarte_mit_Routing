@@ -2,7 +2,7 @@
 # Installation: cp graphhopper-update.service graphhopper-update.timer /etc/systemd/system/
 #               systemctl daemon-reload && systemctl enable --now graphhopper-update.timer
 [Unit]
-Description=Datenupdate für GraphHopper (Berlin-Extrakt)
+Description=Datenupdate für GraphHopper (Deutschland-Extrakt)
 After=network-online.target
 Wants=network-online.target
 
@@ -11,6 +11,8 @@ Type=oneshot
 User=graphhopper
 Group=graphhopper
 WorkingDirectory=/opt/graphhopper
+# Ausgaben von tag_landuse.py sofort ins Journal schreiben statt erst am Ende
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/graphhopper/update.sh
 # "+": Graph-Tausch und Neustart des Dienstes brauchen root
 ExecStartPost=+/opt/graphhopper/activate-graph.sh
@@ -20,8 +22,8 @@ Nice=19
 IOSchedulingClass=idle
 CPUWeight=10
 IOWeight=10
-MemoryHigh=4G
-MemoryMax=5G
+MemoryHigh=18G
+MemoryMax=20G
 
 NoNewPrivileges=true
 ProtectSystem=strict

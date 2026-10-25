@@ -1,6 +1,5 @@
 // Routing-Panel (ähnlich der Routenplanung auf openstreetmap.org) mit GraphHopper als Backend.
 import Feature from 'ol/Feature';
-import Collection from 'ol/Collection';
 import Point from 'ol/geom/Point';
 import LineString from 'ol/geom/LineString';
 import VectorSource from 'ol/source/Vector';
@@ -8,14 +7,13 @@ import {Vector as VectorLayer} from 'ol/layer';
 import {Control} from 'ol/control';
 import Translate from 'ol/interaction/Translate';
 import {Style, Stroke, Circle, Fill} from 'ol/style';
-import {fromLonLat, toLonLat} from 'ol/proj';
+import {fromLonLat, toLonLat, transformExtent} from 'ol/proj';
 import {boundingExtent} from 'ol/extent';
 import './routing.css';
 
 // im Dev-Server per Proxy auf localhost:8989 umgeleitet, siehe vite.config.js
 const GRAPHHOPPER_URL = import.meta.env.VITE_GRAPHHOPPER_URL || '/graphhopper';
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
-const BERLIN_VIEWBOX = '13.08,52.68,13.77,52.33';
 
 const PROFILES = [
     ['foot', 'Zu Fuß'],
@@ -57,16 +55,20 @@ function formatLonLat(lonLat) {
 }
 
 // "52.47, 13.31" -> [13.31, 52.47], sonst Ortssuche über Nominatim
-async function geocode(text) {
+// Sucht zuerst im aktuellen Kartenausschnitt, danach in ganz Deutschland
+async function geocode(text, extent) {
     const m = text.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
     if (m) return [parseFloat(m[2]), parseFloat(m[1])];
-    const params = new URLSearchParams({
-	q: text, format: 'jsonv2', limit: '1', viewbox: BERLIN_VIEWBOX, bounded: '1',
-    });
-    const response = await fetch(NOMINATIM_URL + '?' + params, {headers: {'Accept-Language': 'de'}});
-    const results = await response.json();
-    if (!results.length) throw new Error('„' + text + '“ wurde nicht gefunden.');
-    return [parseFloat(results[0].lon), parseFloat(results[0].lat)];
+    const viewbox = transformExtent(extent, 'EPSG:3857', 'EPSG:4326').join(',');
+    for (const area of [{viewbox: viewbox, bounded: '1'}, {}]) {
+	const params = new URLSearchParams({
+	    q: text, format: 'jsonv2', limit: '1', countrycodes: 'de', ...area,
+	});
+	const response = await fetch(NOMINATIM_URL + '?' + params, {headers: {'Accept-Language': 'de'}});
+	const results = await response.json();
+	if (results.length) return [parseFloat(results[0].lon), parseFloat(results[0].lat)];
+    }
+    throw new Error('„' + text + '“ wurde nicht gefunden.');
 }
 
 class RoutingPanel extends Control {
@@ -100,14 +102,18 @@ class RoutingPanel extends Control {
 	this.instructionList = element.querySelector('.routing-instructions');
 
 	this.markers = {start: null, end: null};
-	this.markerCollection = new Collection();
 	this.routeSource = new VectorSource();
 	this.layer = new VectorLayer({
 	    source: this.routeSource,
 	    name: 'routing',
 	    zIndex: 10,
 	});
-	this.translate = new Translate({features: this.markerCollection});
+	// über layers/filter statt features: verschoben wird nur der Marker unter dem Zeiger,
+	// bei features würden alle Features der Collection gemeinsam verschoben
+	this.translate = new Translate({
+	    layers: [this.layer],
+	    filter: (feature) => feature.get('role') !== undefined,
+	});
 	this.translate.on('translateend', (event) => {
 	    event.features.forEach((feature) => this.updateInputFromMarker(feature.get('role')));
 	    this.calculateRoute();
@@ -164,7 +170,6 @@ class RoutingPanel extends Control {
 	    feature.setStyle(markerStyles[role]);
 	    this.markers[role] = feature;
 	    this.routeSource.addFeature(feature);
-	    this.markerCollection.push(feature);
 	}
 	this.updateInputFromMarker(role);
     }
@@ -173,7 +178,6 @@ class RoutingPanel extends Control {
 	const feature = this.markers[role];
 	if (!feature) return;
 	this.routeSource.removeFeature(feature);
-	this.markerCollection.remove(feature);
 	this.markers[role] = null;
     }
 
@@ -204,7 +208,7 @@ class RoutingPanel extends Control {
 		if (!text) continue;
 		if (this.markers[role] && input.dataset.resolved === input.value) continue;
 		this.status.textContent = 'Suche „' + text + '“ …';
-		const lonLat = await geocode(text);
+		const lonLat = await geocode(text, this.getMap().getView().calculateExtent());
 		this.setMarker(role, fromLonLat(lonLat));
 		input.value = text;
 		input.dataset.resolved = text;
