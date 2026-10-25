@@ -4,3 +4,4 @@ graphhopper/*.jar
 graphhopper/data/
 graphhopper/graph-cache/
 graphhopper/logs/
+*~
