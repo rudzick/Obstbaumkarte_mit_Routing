@@ -12,7 +12,7 @@ GraphHopper lokal einrichten und starten (Java 17+):
     ./graphhopper/setup.sh    # lädt GraphHopper 11.1 und den Deutschland-Extrakt (~4,5 GB)
     ./graphhopper/start.sh    # baut beim ersten Start den Graphen, dann http://localhost:8989
 
-Für Deutschland braucht GraphHopper ca. 14 GB RAM (`start.sh`), der Graph-Import ca. 18 GB
+Für Deutschland braucht GraphHopper ca. 14 GB RAM (`start.sh`), der Graph-Import ca. 20 GB
 (alle Profile mit Abbiegekosten, damit Sperrgebiete eine feste Strafe pro Grenzübertritt bekommen).
 Zum Entwickeln reicht der Berlin-Extrakt (Graph in ~15 min, `-Xmx` in `start.sh` kann auf 3g):
 
@@ -40,7 +40,7 @@ Profile auf dem Server aktualisieren:
 Wöchentliches Datenupdate (aktiviert): `graphhopper-update.timer`
 startet sonntags gegen 4:30 `graphhopper-update.service`. Der lädt den Deutschland-Extrakt neu,
 taggt mit `tag_landuse.py` die Sperrgebiete und baut den Graphen in `graph-cache-new`
-(niedrigste CPU-/IO-Priorität, max. 24 GB RAM, Dauer ca. 9 h). Erst danach tauscht `activate-graph.sh`
+(niedrigste CPU-/IO-Priorität, max. 26 GB RAM, Dauer ca. 5 h). Erst danach tauscht `activate-graph.sh`
 den Graphen ein und startet GraphHopper neu (nur wenn der Dienst läuft); antwortet er
 nicht, kommt der alte Graph zurück.
 
