@@ -16,4 +16,4 @@ mv "$PBF.new" "$PBF"
 ./tag_landuse.py "$PBF" data/deine_region_modifiziert.osm.pbf --landuse military
 
 rm -rf graph-cache-new
-java -Xmx14g -Ddw.graphhopper.graph.location=graph-cache-new -jar graphhopper-web-11.1.jar import config.yml
+java -Xmx18g -Ddw.graphhopper.graph.location=graph-cache-new -jar graphhopper-web-11.1.jar import config.yml

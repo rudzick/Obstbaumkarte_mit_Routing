@@ -21,5 +21,10 @@
   "speed": [
     { "if": "true", "limit_to": "foot_average_speed" },
     { "if": "true", "limit_to": "4" }
+  ],
+  // Betreten und Verlassen eines Sperrgebiets (von tag_landuse.py mit hazmat=no
+  // markiert) kostet je 600 s, unabhängig von der Länge der Wege.
+  "turn_penalty": [
+    { "if": "prev_hazmat != hazmat", "add": "600" }
   ]
 }

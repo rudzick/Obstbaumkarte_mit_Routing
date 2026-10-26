@@ -22,8 +22,8 @@ Nice=19
 IOSchedulingClass=idle
 CPUWeight=10
 IOWeight=10
-MemoryHigh=18G
-MemoryMax=20G
+MemoryHigh=22G
+MemoryMax=24G
 
 NoNewPrivileges=true
 ProtectSystem=strict
