@@ -3,9 +3,10 @@
 
 Sperrgebiete sind Flächen mit landuse=<Wert>. Das Skript
 
-- teilt Wege (highway=*) dort, wo sie die Grenze eines Sperrgebiets überqueren. Die Teile
-  im Inneren bekommen access=yes und ein Markierungs-Tag (Standard: hazmat=no), die
-  Teile außerhalb behalten ihre Tags. In den Custom Models kostet jeder Wechsel
+- teilt Wege (highway=*) dort, wo sie die Grenze eines Sperrgebiets überqueren. Alle Teile
+  bekommen access=yes, damit das Wegenetz im Inneren mit dem außerhalb verbunden
+  bleibt; nur die Teile im Inneren bekommen zusätzlich ein Markierungs-Tag
+  (Standard: hazmat=no). Wege ganz im Inneren werden ebenso markiert. In den Custom Models kostet jeder Wechsel
   zwischen markierten und unmarkierten Kanten eine feste Abbiegestrafe
   (turn_penalty), unabhängig von der Länge der Wege: Ziele im Sperrgebiet bleiben
   erreichbar, Routen führen aber nicht hindurch;
@@ -189,7 +190,8 @@ class RestrictedAreaTagger(osmium.SimpleHandler):
             self.writer.add_way(w.replace(tags=tags))
             return
 
-        # Weg überquert die Grenze: in Teile innen/außen zerlegen
+        # Weg überquert die Grenze: ganz freigeben, dann in Teile innen/außen zerlegen
+        tags['access'] = 'yes'
         refs = [n.ref for n in w.nodes]
         bounds = [0] + self.split_points(w, inside) + [len(refs) - 1]
         new_ids = []
@@ -269,7 +271,7 @@ def main():
     s = tagger.stats
     marker = '='.join(args.marker)
     print(f'{s["inside"]} Wege ganz im Inneren und {s["split"]} Grenzwege (geteilt in '
-          f'{s["pieces"]} Teile) mit access=yes und {marker} markiert, '
+          f'{s["pieces"]} Teile, alle mit access=yes) mit {marker} markiert, '
           f'{s["barrier_splits"]} Teilungen an Barrieren nicht vermeidbar.')
     print(f'{s["gates"]} Tore mit {s["gate_access"]} Zugangs-Tags freigegeben.')
     print(f'{s["landuse"]} landuse-Tags und {s["area_access"]} Zugangs-Tags der Sperrgebiete '
