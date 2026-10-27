@@ -38,7 +38,8 @@
 }
 
 .routing-close,
-.routing-swap {
+.routing-swap,
+.routing-via-clear {
     border: 0;
     background: none;
     font-size: 1.4em;
@@ -62,6 +63,23 @@
 
 .routing-end {
     border-left: 4px solid #d62828;
+}
+
+.routing-via-row {
+    display: flex;
+    align-items: flex-start;
+}
+
+.routing-panel .routing-via {
+    flex: 1;
+    min-width: 0;
+    border-left: 4px solid #f08c00;
+}
+
+.routing-via-clear {
+    padding: 0 0 0 .2em;
+    font-size: 1.2em;
+    line-height: 1.4;
 }
 
 .routing-go {

@@ -37,7 +37,9 @@ function markerStyle(color) {
 	zIndex: 1,
     });
 }
-const markerStyles = {start: markerStyle('#2a9d3a'), end: markerStyle('#d62828')};
+// Reihenfolge der Punkte in der Route; via ist optional
+const ROLES = ['start', 'via', 'end'];
+const markerStyles = {start: markerStyle('#2a9d3a'), via: markerStyle('#f08c00'), end: markerStyle('#d62828')};
 
 function formatDistance(m) {
     if (m < 1000) return Math.round(m) + ' m';
@@ -87,6 +89,10 @@ class RoutingPanel extends Control {
 	  <div class="routing-endpoints">
 	    <div class="routing-inputs">
 	      <input type="text" class="routing-start" placeholder="Start (Ort oder Klick in die Karte)">
+	      <div class="routing-via-row">
+	        <input type="text" class="routing-via" placeholder="Über (optional)">
+	        <button type="button" class="routing-via-clear" title="Zwischenziel entfernen">×</button>
+	      </div>
 	      <input type="text" class="routing-end" placeholder="Ziel (Ort oder Klick in die Karte)">
 	    </div>
 	    <button type="button" class="routing-swap" title="Start und Ziel tauschen">⇅</button>
@@ -97,11 +103,15 @@ class RoutingPanel extends Control {
 	super({element: element});
 
 	this.profileSelect = element.querySelector('.routing-profile');
-	this.inputs = {start: element.querySelector('.routing-start'), end: element.querySelector('.routing-end')};
+	this.inputs = Object.fromEntries(ROLES.map((role) => [role, element.querySelector('.routing-' + role)]));
 	this.status = element.querySelector('.routing-status');
 	this.instructionList = element.querySelector('.routing-instructions');
 
-	this.markers = {start: null, end: null};
+	this.markers = {start: null, via: null, end: null};
+	// zuletzt angeklicktes Eingabefeld; der nächste Klick in die Karte setzt dessen Punkt
+	this.activeRole = null;
+	// wird bei jeder Änderung der Route aufgerufen (Permalink), siehe addRouting
+	this.onChange = () => {};
 	this.routeSource = new VectorSource();
 	this.layer = new VectorLayer({
 	    source: this.routeSource,
@@ -123,10 +133,14 @@ class RoutingPanel extends Control {
 	element.querySelector('.routing-close').addEventListener('click', () => this.close());
 	element.querySelector('.routing-go').addEventListener('click', () => this.resolveAndRoute());
 	element.querySelector('.routing-swap').addEventListener('click', () => this.swap());
+	element.querySelector('.routing-via-clear').addEventListener('click', () => this.clearVia());
 	this.profileSelect.addEventListener('change', () => this.calculateRoute());
-	Object.values(this.inputs).forEach((input) => input.addEventListener('keydown', (event) => {
-	    if (event.key === 'Enter') this.resolveAndRoute();
-	}));
+	Object.entries(this.inputs).forEach(([role, input]) => {
+	    input.addEventListener('focus', () => { this.activeRole = role; });
+	    input.addEventListener('keydown', (event) => {
+		if (event.key === 'Enter') this.resolveAndRoute();
+	    });
+	});
     }
 
     setMap(map) {
@@ -137,9 +151,32 @@ class RoutingPanel extends Control {
 	map.on('singleclick', (event) => {
 	    if (this.element.hidden) return;
 	    if (map.forEachFeatureAtPixel(event.pixel, () => true, {layerFilter: (l) => l === this.layer})) return;
-	    this.setMarker(this.markers.start ? 'end' : 'start', event.coordinate);
+	    const role = this.activeRole || (this.markers.start ? 'end' : 'start');
+	    this.activeRole = null;
+	    this.setMarker(role, event.coordinate);
 	    this.calculateRoute();
 	});
+    }
+
+    // Punkte für den Permalink, jeweils [lon, lat] oder null
+    getPermalinkState() {
+	const lonLat = (role) => this.markers[role] ? toLonLat(this.markers[role].getGeometry().getCoordinates()) : null;
+	return {profile: this.profileSelect.value, start: lonLat('start'), via: lonLat('via'), end: lonLat('end')};
+    }
+
+    // Route aus dem Permalink wiederherstellen; fehlt Start oder Ziel, wird danach gefragt
+    setPermalinkState(state) {
+	this.element.hidden = false;
+	if (PROFILES.some(([id]) => id === state.profile)) this.profileSelect.value = state.profile;
+	ROLES.forEach((role) => {
+	    if (state[role]) this.setMarker(role, fromLonLat(state[role]));
+	});
+	if (!state.start) {
+	    this.inputs.start.focus();
+	} else if (!state.end) {
+	    this.inputs.end.focus();
+	}
+	this.calculateRoute();
     }
 
     toggle() {
@@ -155,11 +192,19 @@ class RoutingPanel extends Control {
 	this.element.hidden = true;
 	if (this.abortController) this.abortController.abort();
 	this.clearRoute();
-	['start', 'end'].forEach((role) => {
+	ROLES.forEach((role) => {
 	    this.removeMarker(role);
 	    this.inputs[role].value = '';
 	});
+	this.activeRole = null;
 	this.status.textContent = '';
+	this.onChange();
+    }
+
+    clearVia() {
+	this.removeMarker('via');
+	this.inputs.via.value = '';
+	this.calculateRoute();
     }
 
     setMarker(role, coordinate) {
@@ -201,11 +246,17 @@ class RoutingPanel extends Control {
     }
 
     async resolveAndRoute() {
+	// eingegebener Text statt Klick: der nächste Klick setzt wieder Start bzw. Ziel
+	this.activeRole = null;
 	try {
-	    for (const role of ['start', 'end']) {
+	    for (const role of ROLES) {
 		const input = this.inputs[role];
 		const text = input.value.trim();
-		if (!text) continue;
+		if (!text) {
+		    // leeres Über-Feld entfernt das Zwischenziel
+		    if (role === 'via') this.removeMarker('via');
+		    continue;
+		}
 		if (this.markers[role] && input.dataset.resolved === input.value) continue;
 		this.status.textContent = 'Suche „' + text + '“ …';
 		const lonLat = await geocode(text, this.getMap().getView().calculateExtent());
@@ -228,8 +279,15 @@ class RoutingPanel extends Control {
     }
 
     async calculateRoute(fit = false) {
+	this.onChange();
 	if (!this.markers.start || !this.markers.end) {
-	    this.status.textContent = this.markers.start ? 'Jetzt das Ziel in der Karte anklicken.' : '';
+	    if (this.abortController) this.abortController.abort();
+	    this.clearRoute();
+	    if (!this.markers.start) {
+		this.status.textContent = (this.markers.via || this.markers.end) ? 'Start in der Karte anklicken oder eingeben.' : '';
+	    } else {
+		this.status.textContent = 'Ziel in der Karte anklicken oder eingeben.';
+	    }
 	    return;
 	}
 	if (this.abortController) this.abortController.abort();
@@ -241,7 +299,7 @@ class RoutingPanel extends Control {
 	    locale: 'de',
 	    instructions: 'true',
 	});
-	['start', 'end'].forEach((role) => {
+	ROLES.filter((role) => this.markers[role]).forEach((role) => {
 	    const lonLat = toLonLat(this.markers[role].getGeometry().getCoordinates());
 	    params.append('point', lonLat[1] + ',' + lonLat[0]);
 	});
@@ -293,8 +351,9 @@ class RoutingPanel extends Control {
     }
 }
 
-export function addRouting(map) {
+export function addRouting(map, options = {}) {
     const panel = new RoutingPanel();
+    if (options.onChange) panel.onChange = options.onChange;
 
     const button = document.createElement('button');
     button.type = 'button';
@@ -307,4 +366,5 @@ export function addRouting(map) {
 
     map.addControl(new Control({element: buttonElement}));
     map.addControl(panel);
+    return panel;
 }
