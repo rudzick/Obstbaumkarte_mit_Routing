@@ -88,12 +88,18 @@ class RoutingPanel extends Control {
 	  </select>
 	  <div class="routing-endpoints">
 	    <div class="routing-inputs">
-	      <input type="text" class="routing-start" placeholder="Start (Ort oder Klick in die Karte)">
-	      <div class="routing-via-row">
-	        <input type="text" class="routing-via" placeholder="Über (optional)">
-	        <button type="button" class="routing-via-clear" title="Zwischenziel entfernen">×</button>
+	      <div class="routing-point-row">
+	        <input type="text" class="routing-start" placeholder="Start (Ort oder Klick in die Karte)">
+	        <button type="button" class="routing-clear" data-role="start" title="Start entfernen">×</button>
 	      </div>
-	      <input type="text" class="routing-end" placeholder="Ziel (Ort oder Klick in die Karte)">
+	      <div class="routing-point-row">
+	        <input type="text" class="routing-via" placeholder="Über (optional)">
+	        <button type="button" class="routing-clear" data-role="via" title="Zwischenziel entfernen">×</button>
+	      </div>
+	      <div class="routing-point-row">
+	        <input type="text" class="routing-end" placeholder="Ziel (Ort oder Klick in die Karte)">
+	        <button type="button" class="routing-clear" data-role="end" title="Ziel entfernen">×</button>
+	      </div>
 	    </div>
 	    <button type="button" class="routing-swap" title="Start und Ziel tauschen">⇅</button>
 	  </div>
@@ -133,7 +139,9 @@ class RoutingPanel extends Control {
 	element.querySelector('.routing-close').addEventListener('click', () => this.close());
 	element.querySelector('.routing-go').addEventListener('click', () => this.resolveAndRoute());
 	element.querySelector('.routing-swap').addEventListener('click', () => this.swap());
-	element.querySelector('.routing-via-clear').addEventListener('click', () => this.clearVia());
+	element.querySelectorAll('.routing-clear').forEach((button) => {
+	    button.addEventListener('click', () => this.clearPoint(button.dataset.role));
+	});
 	this.profileSelect.addEventListener('change', () => this.calculateRoute());
 	Object.entries(this.inputs).forEach(([role, input]) => {
 	    input.addEventListener('focus', () => { this.activeRole = role; });
@@ -201,9 +209,9 @@ class RoutingPanel extends Control {
 	this.onChange();
     }
 
-    clearVia() {
-	this.removeMarker('via');
-	this.inputs.via.value = '';
+    clearPoint(role) {
+	this.removeMarker(role);
+	this.inputs[role].value = '';
 	this.calculateRoute();
     }
 
