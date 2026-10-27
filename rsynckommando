@@ -1,4 +1,4 @@
 rsync -avu -e "ssh -p 39125" dist/ root@mymapnik.rudzick.it:/var/www/Obstbaumkarte/
 rsync -av --delete -e "ssh -p 39125" dist/assets/ root@mymapnik.rudzick.it:/var/www/Obstbaumkarte/assets/
-rsync -avu -e "ssh -p 39125" graphhopper/ root@mymapnik.rudzick.it:/opt/graphhopper
+rsync -avu -e "ssh -p 39125" --exclude='*~' graphhopper/config.yml graphhopper/custom_models graphhopper/*.sh graphhopper/tag_landuse.py graphhopper/*.service graphhopper/*.timer root@mymapnik.rudzick.it:/opt/graphhopper/
 
