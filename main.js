@@ -215,7 +215,7 @@ var styleFunction = function(feature, resolution) {
 };
 
 const plotMinZoom = 14;  // unterhalb sind die Parzellen nicht zu sehen
-const plotDoubleSearchMinZoom = 17;  // erst oberhalb wird über den Kartenausschnitt hinaus gesucht
+const plotWiderSearchMinZoom = 17;  // erst oberhalb wird über den Kartenausschnitt hinaus gesucht
 const plotTileFormat = new MVT();
 var plotSearchNumber = 0;
 
@@ -247,8 +247,8 @@ function loadSearchedPlots(map, layerName, searchExtent) {
 }
 
 // Zentriert die Karte auf die gesuchten Parzelleneingänge, bei Parzellen ohne Eingang auf
-// die Parzelle selbst. Gesucht wird im Kartenausschnitt, bei hohem Zoom im doppelt so
-// breiten und hohen Bereich.
+// die Parzelle selbst. Gesucht wird im Kartenausschnitt, oberhalb von Zoom 17 in einem
+// größeren Bereich: 2-mal so breit und hoch bei Zoom 18, 4-mal bei Zoom 19, 8-mal bei Zoom 20 ...
 async function centerOnSearchedPlots(map) {
     const search = ++plotSearchNumber;
     const view = map.getView();
@@ -257,8 +257,8 @@ async function centerOnSearchedPlots(map) {
 	return;
     }
     const searchExtent = view.calculateExtent(map.getSize());
-    if (zoom > plotDoubleSearchMinZoom) {
-	scaleFromCenter(searchExtent, 2);
+    if (zoom > plotWiderSearchMinZoom) {
+	scaleFromCenter(searchExtent, Math.pow(2, zoom - plotWiderSearchMinZoom));
     }
 
     let entrances, plotParts;
