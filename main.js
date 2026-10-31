@@ -8,7 +8,7 @@ import OSM from 'ol/source/OSM.js';
 import TileLayer from 'ol/layer/Tile';
 import {Vector as VectorLayer} from 'ol/layer';
 import {transform, transformExtent, get as getProjection, fromLonLat} from 'ol/proj';
-import {buffer, containsCoordinate, containsExtent, createEmpty, extend, extendCoordinate, getCenter, isEmpty, scaleFromCenter} from 'ol/extent';
+import {boundingExtent, buffer, containsCoordinate, containsExtent, createEmpty, extend, getCenter, scaleFromCenter} from 'ol/extent';
 import XYZ from 'ol/source/XYZ';
 import VectorSource from 'ol/source/Vector';
 import {Icon, Style, Circle, Fill, Stroke} from 'ol/style';
@@ -201,15 +201,15 @@ function plotRef(feature) {
     return (feature.get('ref') || '').replace(/[^0-9a-zA-ZZäöüÄÖÜß]+/g,"").toLowerCase();
 }
 
-function isSearchedPlot(feature) {
+function isPlotAmong(feature, nrs) {
     const ref = plotRef(feature);
     return ['table.public.allotment_plots.geom', 'table.public.allotment_plot_entrances.geom'].includes(feature.get('layer'))
-	&& plot_nrs.includes(ref)
+	&& nrs.includes(ref)
 	&& ref.length > 0;
 }
 
 var styleFunction = function(feature, resolution) {
-    if (isSearchedPlot(feature)) {
+    if (isPlotAmong(feature, plot_nrs)) {
 	return(plothighlightStyle);
     }
 };
@@ -219,9 +219,9 @@ const plotWiderSearchMinZoom = 17;  // erst oberhalb wird über den Kartenaussch
 const plotTileFormat = new MVT();
 var plotSearchNumber = 0;
 
-// Lädt die gesuchten Parzellen einer Kartenebene im Suchbereich. Kacheln außerhalb des
-// Kartenausschnitts sind noch nicht geladen, deshalb werden sie hier selbst angefragt.
-function loadSearchedPlots(map, layerName, searchExtent) {
+// Lädt die Parzellen mit den Nummern nrs aus einer Kartenebene im Suchbereich. Kacheln außerhalb
+// des Kartenausschnitts sind noch nicht geladen, deshalb werden sie hier selbst angefragt.
+function loadPlots(map, layerName, searchExtent, nrs) {
     const view = map.getView();
     const source = map.getLayers().getArray()
 	.find(layer => layer.get('name') === layerName).getSource();
@@ -243,44 +243,31 @@ function loadSearchedPlots(map, layerName, searchExtent) {
 		})));
 	}
     }
-    return Promise.all(requests).then(tiles => tiles.flat().filter(isSearchedPlot));
+    return Promise.all(requests).then(tiles => tiles.flat().filter(feature => isPlotAmong(feature, nrs)));
 }
 
-// Zentriert die Karte auf die gesuchten Parzelleneingänge, bei Parzellen ohne Eingang auf
-// die Parzelle selbst. Gesucht wird im Kartenausschnitt, oberhalb von Zoom 17 in einem
+// Punkte der Parzellen mit den Nummern nrs: die Eingänge, bei Parzellen ohne Eingang die
+// Parzellenmitte. Gesucht wird im Kartenausschnitt, oberhalb von Zoom 17 in einem
 // größeren Bereich: 2-mal so breit und hoch bei Zoom 18, 4-mal bei Zoom 19, 8-mal bei Zoom 20 ...
-async function centerOnSearchedPlots(map) {
-    const search = ++plotSearchNumber;
+async function findPlotPoints(map, nrs) {
     const view = map.getView();
     const zoom = view.getZoom();
-    if (zoom < plotMinZoom || plot_nrs.length === 0) {
-	return;
+    if (zoom < plotMinZoom || nrs.length === 0) {
+	return [];
     }
     const searchExtent = view.calculateExtent(map.getSize());
     if (zoom > plotWiderSearchMinZoom) {
 	scaleFromCenter(searchExtent, Math.pow(2, zoom - plotWiderSearchMinZoom));
     }
 
-    let entrances, plotParts;
-    try {
-	[entrances, plotParts] = await Promise.all([
-	    loadSearchedPlots(map, 'parzelleneingaenge', searchExtent),
-	    loadSearchedPlots(map, 'parzellengrenzen', searchExtent),
-	]);
-    } catch (error) {
-	console.error('Parzellen konnten nicht geladen werden', error);
-	return;
-    }
-    if (search !== plotSearchNumber) {  // inzwischen neu gesucht
-	return;
-    }
+    const [entrances, plotParts] = await Promise.all([
+	loadPlots(map, 'parzelleneingaenge', searchExtent, nrs),
+	loadPlots(map, 'parzellengrenzen', searchExtent, nrs),
+    ]);
 
-    const found = createEmpty();
-    entrances.forEach(entrance => {
-	if (containsExtent(searchExtent, entrance.getExtent())) {
-	    extend(found, entrance.getExtent());
-	}
-    });
+    const points = entrances
+	.filter(entrance => containsExtent(searchExtent, entrance.getExtent()))
+	.map(entrance => getCenter(entrance.getExtent()));
 
     // eine Parzelle kann über mehrere Kacheln verteilt sein
     const plots = {};
@@ -298,13 +285,41 @@ async function centerOnSearchedPlots(map) {
 	const hasEntrance = entrances.some(entrance =>
 	    plotRef(entrance) === plot.ref && containsExtent(tolerance, entrance.getExtent()));
 	if (!hasEntrance && containsCoordinate(searchExtent, center)) {
-	    extendCoordinate(found, center);
+	    points.push(center);
 	}
     });
+    return points;
+}
 
-    if (!isEmpty(found)) {
-	view.animate({center: getCenter(found), duration: 500});
+// Zentriert die Karte auf die gesuchten Parzellen
+async function centerOnSearchedPlots(map) {
+    const search = ++plotSearchNumber;
+    let points;
+    try {
+	points = await findPlotPoints(map, plot_nrs);
+    } catch (error) {
+	console.error('Parzellen konnten nicht geladen werden', error);
+	return;
     }
+    if (search === plotSearchNumber && points.length > 0) {  // sonst inzwischen neu gesucht
+	map.getView().animate({center: getCenter(boundingExtent(points)), duration: 500});
+    }
+}
+
+// Routenziel zu einer Parzellennummer: der Punkt, der der Kartenmitte am nächsten liegt
+// (Nummern wiederholen sich in anderen Kolonien); null, wenn nichts gefunden wurde
+async function findPlotDestination(map, text) {
+    let points;
+    try {
+	points = await findPlotPoints(map, normalizePlots(text));
+    } catch (error) {
+	console.error('Parzellen konnten nicht geladen werden', error);
+	return null;
+    }
+    const center = map.getView().getCenter();
+    const distance = point => Math.hypot(point[0] - center[0], point[1] - center[1]);
+    return points.reduce((nearest, point) =>
+	nearest === null || distance(point) < distance(nearest) ? point : nearest, null);
 }
 
 var vectorSource = new VectorSource({
@@ -411,7 +426,10 @@ const map = new Map({
     //   controls: defaultControls({attribution: true}).extend([attribution,massstab,new FullScreen()]),
 });
 
-const routing = addRouting(map, {onChange: () => updatePermalink()});
+const routing = addRouting(map, {
+    onChange: () => updatePermalink(),
+    findPlot: (text) => findPlotDestination(map, text),
+});
 
 map.on('pointermove', showInfo);
 
