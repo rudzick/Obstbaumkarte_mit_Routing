@@ -54,7 +54,9 @@ class FindAllotmentPlots extends Control {
 
   handleFindAllotmentPlots() {
       plot_nrs = normalizePlots(document.getElementById("allotment_number_field").value);
-      this.getMap().getLayers().getArray().find(layer => layer.get('name') == 'parzellengrenzen').setStyle(styleFunction);
+      this.getMap().getLayers().getArray()
+	  .filter(layer => ['parzellengrenzen', 'parzelleneingaenge'].includes(layer.get('name')))
+	  .forEach(layer => layer.setStyle(styleFunction));
       updatePermalink();
   };
 }
@@ -178,11 +180,18 @@ const hecke = new Style({
 
 // iconFeature.setStyle(iconStyle);
 
+const plothighlightStroke = new Stroke({
+    color: 'rgba(197,27,138,0.7)',
+    width: 2.1,
+    padding: 3.0
+});
+
+// stroke zeichnet die Parzellengrenzen (Flächen), image die Parzelleneingänge (Punkte)
 var plothighlightStyle = new Style({
-    stroke: new Stroke({
-        color: 'rgba(197,27,138,0.7)',
-        width: 2.1,
-	padding: 3.0
+    stroke: plothighlightStroke,
+    image: new Circle({
+	radius: 5,
+	stroke: plothighlightStroke,
     }),
 });
 
@@ -192,7 +201,7 @@ var styleFunction = function(feature, resolution) {
 	ref = feature.get('ref').replace(/[^0-9a-zA-ZZäöüÄÖÜß]+/g,"").toLowerCase();
     }
 //    console.log(plot_nrs, ref );
-    if (feature.get('layer') === 'table.public.allotment_plots.geom'
+    if (['table.public.allotment_plots.geom', 'table.public.allotment_plot_number.geom'].includes(feature.get('layer'))
 	&& (plot_nrs.includes(ref))
 	&& (ref.length)) {
     return(plothighlightStyle);
@@ -238,6 +247,17 @@ const map = new Map({
 	    source: new VectorTileSource({
 		format: new MVT(),
 		url: 'https://sbtiles.obstbaumkarte.de/table.public.allotment_plots.geom/{z}/{x}/{y}',
+		crossOrigin: 'anonymous',
+	    }),
+	    minZoom: 14,
+	    maxZoom: 21,
+	    style: styleFunction,
+	}),
+	new VectorTileLayer({
+	    name: 'parzelleneingaenge',
+	    source: new VectorTileSource({
+		format: new MVT(),
+		url: 'https://sbtiles.obstbaumkarte.de/table.public.allotment_plot_number.geom/{z}/{x}/{y}',
 		crossOrigin: 'anonymous',
 	    }),
 	    minZoom: 14,
