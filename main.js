@@ -8,6 +8,7 @@ import OSM from 'ol/source/OSM.js';
 import TileLayer from 'ol/layer/Tile';
 import {Vector as VectorLayer} from 'ol/layer';
 import {transform, transformExtent, get as getProjection, fromLonLat} from 'ol/proj';
+import {buffer, containsCoordinate, containsExtent, createEmpty, extend, extendCoordinate, getCenter, isEmpty, scaleFromCenter} from 'ol/extent';
 import XYZ from 'ol/source/XYZ';
 import VectorSource from 'ol/source/Vector';
 import {Icon, Style, Circle, Fill, Stroke} from 'ol/style';
@@ -58,6 +59,7 @@ class FindAllotmentPlots extends Control {
 	  .filter(layer => ['parzellengrenzen', 'parzelleneingaenge'].includes(layer.get('name')))
 	  .forEach(layer => layer.setStyle(styleFunction));
       updatePermalink();
+      centerOnSearchedPlots(this.getMap());
   };
 }
 
@@ -195,19 +197,115 @@ var plothighlightStyle = new Style({
     }),
 });
 
+function plotRef(feature) {
+    return (feature.get('ref') || '').replace(/[^0-9a-zA-ZZäöüÄÖÜß]+/g,"").toLowerCase();
+}
+
+function isSearchedPlot(feature) {
+    const ref = plotRef(feature);
+    return ['table.public.allotment_plots.geom', 'table.public.allotment_plot_entrances.geom'].includes(feature.get('layer'))
+	&& plot_nrs.includes(ref)
+	&& ref.length > 0;
+}
+
 var styleFunction = function(feature, resolution) {
-    var ref = '  ';
-    if(feature.get('ref')) {
-	ref = feature.get('ref').replace(/[^0-9a-zA-ZZäöüÄÖÜß]+/g,"").toLowerCase();
+    if (isSearchedPlot(feature)) {
+	return(plothighlightStyle);
     }
-//    console.log(plot_nrs, ref );
-    if (['table.public.allotment_plots.geom', 'table.public.allotment_plot_entrances.geom'].includes(feature.get('layer'))
-	&& (plot_nrs.includes(ref))
-	&& (ref.length)) {
-    return(plothighlightStyle);
-  }
 };
 
+const plotMinZoom = 14;  // unterhalb sind die Parzellen nicht zu sehen
+const plotDoubleSearchMinZoom = 17;  // erst oberhalb wird über den Kartenausschnitt hinaus gesucht
+const plotTileFormat = new MVT();
+var plotSearchNumber = 0;
+
+// Lädt die gesuchten Parzellen einer Kartenebene im Suchbereich. Kacheln außerhalb des
+// Kartenausschnitts sind noch nicht geladen, deshalb werden sie hier selbst angefragt.
+function loadSearchedPlots(map, layerName, searchExtent) {
+    const view = map.getView();
+    const source = map.getLayers().getArray()
+	.find(layer => layer.get('name') === layerName).getSource();
+    const tileGrid = source.getTileGrid();
+    // wenige Kacheln anfragen: zwei Stufen gröber als die Karte, nicht gröber als 12
+    const tileZoom = Math.min(Math.max(Math.floor(view.getZoom()) - 2, 12), 16);
+    const tileRange = tileGrid.getTileRangeForExtentAndZ(searchExtent, tileZoom);
+
+    const requests = [];
+    for (let x = tileRange.minX; x <= tileRange.maxX; x++) {
+	for (let y = tileRange.minY; y <= tileRange.maxY; y++) {
+	    const tileCoord = [tileZoom, x, y];
+	    const url = source.getTileUrlFunction()(tileCoord, 1, view.getProjection());
+	    requests.push(fetch(url)
+		.then(response => response.ok ? response.arrayBuffer() : new ArrayBuffer(0))
+		.then(data => data.byteLength === 0 ? [] : plotTileFormat.readFeatures(data, {
+		    extent: tileGrid.getTileCoordExtent(tileCoord),
+		    featureProjection: view.getProjection(),
+		})));
+	}
+    }
+    return Promise.all(requests).then(tiles => tiles.flat().filter(isSearchedPlot));
+}
+
+// Zentriert die Karte auf die gesuchten Parzelleneingänge, bei Parzellen ohne Eingang auf
+// die Parzelle selbst. Gesucht wird im Kartenausschnitt, bei hohem Zoom im doppelt so
+// breiten und hohen Bereich.
+async function centerOnSearchedPlots(map) {
+    const search = ++plotSearchNumber;
+    const view = map.getView();
+    const zoom = view.getZoom();
+    if (zoom < plotMinZoom || plot_nrs.length === 0) {
+	return;
+    }
+    const searchExtent = view.calculateExtent(map.getSize());
+    if (zoom > plotDoubleSearchMinZoom) {
+	scaleFromCenter(searchExtent, 2);
+    }
+
+    let entrances, plotParts;
+    try {
+	[entrances, plotParts] = await Promise.all([
+	    loadSearchedPlots(map, 'parzelleneingaenge', searchExtent),
+	    loadSearchedPlots(map, 'parzellengrenzen', searchExtent),
+	]);
+    } catch (error) {
+	console.error('Parzellen konnten nicht geladen werden', error);
+	return;
+    }
+    if (search !== plotSearchNumber) {  // inzwischen neu gesucht
+	return;
+    }
+
+    const found = createEmpty();
+    entrances.forEach(entrance => {
+	if (containsExtent(searchExtent, entrance.getExtent())) {
+	    extend(found, entrance.getExtent());
+	}
+    });
+
+    // eine Parzelle kann über mehrere Kacheln verteilt sein
+    const plots = {};
+    plotParts.forEach(part => {
+	const id = part.get('way_id');
+	if (!plots[id]) {
+	    plots[id] = {ref: plotRef(part), extent: createEmpty()};
+	}
+	extend(plots[id].extent, part.getExtent());
+    });
+    Object.values(plots).forEach(plot => {
+	const center = getCenter(plot.extent);
+	// Eingänge liegen auf der Parzellengrenze; 5 m Spielraum wegen der Kachelauflösung
+	const tolerance = buffer(plot.extent, 5);
+	const hasEntrance = entrances.some(entrance =>
+	    plotRef(entrance) === plot.ref && containsExtent(tolerance, entrance.getExtent()));
+	if (!hasEntrance && containsCoordinate(searchExtent, center)) {
+	    extendCoordinate(found, center);
+	}
+    });
+
+    if (!isEmpty(found)) {
+	view.animate({center: getCenter(found), duration: 500});
+    }
+}
 
 var vectorSource = new VectorSource({
   features: [iconFeature]
