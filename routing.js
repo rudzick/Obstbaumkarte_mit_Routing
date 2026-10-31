@@ -12,10 +12,10 @@ import {boundingExtent} from 'ol/extent';
 import './routing.css';
 
 // im Dev-Server per Proxy auf localhost:8989 umgeleitet, siehe vite.config.js
-const GRAPHHOPPER_URL = import.meta.env.VITE_GRAPHHOPPER_URL || '/graphhopper';
+export const GRAPHHOPPER_URL = import.meta.env.VITE_GRAPHHOPPER_URL || '/graphhopper';
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 
-const PROFILES = [
+export const PROFILES = [
     ['foot', 'Zu Fuß'],
     ['bike', 'Fahrrad'],
     ['wheelchair', 'Rollstuhl / Kinderwagen'],
@@ -49,7 +49,7 @@ const ROLES = ['start', 'via', 'end'];
 const END_PLACEHOLDERS = {place: 'Ziel (Ort oder Klick)', plot: 'Ziel: Parzellennummer'};
 const markerStyles = {start: markerStyle('#2a9d3a'), via: markerStyle('#f08c00'), end: markerStyle('#d62828')};
 
-function formatDistance(m) {
+export function formatDistance(m) {
     if (m < 1000) return Math.round(m) + ' m';
     return (m / 1000).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' km';
 }
@@ -147,6 +147,8 @@ class RoutingPanel extends Control {
 	this.activeRole = null;
 	// wird bei jeder Änderung der Route aufgerufen (Permalink), siehe addRouting
 	this.onChange = () => {};
+	// wird aufgerufen, wenn das Panel aufgeht, siehe addRouting
+	this.onOpen = () => {};
 	// sucht ein Ziel zu einer Parzellennummer, siehe addRouting
 	this.findPlot = async () => null;
 	// eingegebene Parzellennummer des Ziels; wird hervorgehoben, siehe addRouting
@@ -212,6 +214,7 @@ class RoutingPanel extends Control {
 
     // Route aus dem Permalink wiederherstellen; fehlt Start oder Ziel, wird danach gefragt
     setPermalinkState(state) {
+	this.onOpen();
 	this.element.hidden = false;
 	if (PROFILES.some(([id]) => id === state.profile)) this.profileSelect.value = state.profile;
 	ROLES.forEach((role) => {
@@ -234,6 +237,7 @@ class RoutingPanel extends Control {
 
     toggle() {
 	if (this.element.hidden) {
+	    this.onOpen();
 	    this.element.hidden = false;
 	    this.inputs.start.focus();
 	} else {
@@ -452,6 +456,7 @@ class RoutingPanel extends Control {
 export function addRouting(map, options = {}) {
     const panel = new RoutingPanel();
     if (options.onChange) panel.onChange = options.onChange;
+    if (options.onOpen) panel.onOpen = options.onOpen;
     if (options.findPlot) panel.findPlot = options.findPlot;
     if (options.onEndPlotChange) panel.onEndPlotChange = options.onEndPlotChange;
 

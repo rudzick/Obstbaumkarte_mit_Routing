@@ -3,6 +3,24 @@
     left: .5em;
 }
 
+.waycut-button {
+    top: 11em;
+    left: .5em;
+}
+
+.waycut-button button {
+    font-size: 1.1em;
+}
+
+.waycut-hint {
+    margin-bottom: .4em;
+}
+
+.waycut-results {
+    list-style: none;
+    padding-left: 0;
+}
+
 .routing-panel {
     position: absolute;
     top: 2.5em;
@@ -87,6 +105,10 @@
 
 .routing-go {
     cursor: pointer;
+}
+
+.routing-go:disabled {
+    cursor: default;
 }
 
 /* das unsichtbare Auswahlfeld liegt über dem Symbol; so öffnet sich auch auf

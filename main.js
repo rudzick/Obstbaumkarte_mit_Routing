@@ -19,6 +19,7 @@ import {defaults as defaultControls, Attribution, ScaleLine, FullScreen, Control
 import {circular} from 'ol/geom/Polygon';
 import kompas from 'kompas';
 import {addRouting} from './routing.js';
+import {addWayCut} from './waycut.js';
 
 const allotment_number_field = document.createElement('input');
 allotment_number_field.className = 'ol-control button';
@@ -81,6 +82,9 @@ class FindAllotmentPlots extends Control {
 
 var plot_nrs = [' '];
 var route_plot_nrs = [];  // Parzelle als Routenziel
+// Ergebnis der Wegabschnitt-Prüfung; exakte Objekte, weil Nummern sich wiederholen
+var waycut_plot_ids = new Set();
+var waycut_entrance_ids = new Set();
 
 function refreshPlotHighlight(map) {
     map.getLayers().getArray()
@@ -244,7 +248,9 @@ var styleFunction = function(feature, resolution) {
     if (isPlotAmong(feature, route_plot_nrs)) {
 	return(routePlotHighlightStyle);
     }
-    if (isPlotAmong(feature, plot_nrs)) {
+    if (isPlotAmong(feature, plot_nrs)
+	|| waycut_plot_ids.has(feature.get('way_id'))
+	|| waycut_entrance_ids.has(feature.get('node_id'))) {
 	return(plothighlightStyle);
     }
 };
@@ -463,9 +469,19 @@ const map = new Map({
 
 const routing = addRouting(map, {
     onChange: () => updatePermalink(),
+    onOpen: () => { if (wayCut.isOpen) wayCut.close(); },
     findPlot: (text) => findPlotDestination(map, text),
     onEndPlotChange: (text) => {
 	route_plot_nrs = text ? normalizePlots(text) : [];
+	refreshPlotHighlight(map);
+    },
+});
+
+const wayCut = addWayCut(map, {
+    onOpen: () => { if (!routing.element.hidden) routing.close(); },
+    onHighlight: (plotIds, entranceIds) => {
+	waycut_plot_ids = plotIds;
+	waycut_entrance_ids = entranceIds;
 	refreshPlotHighlight(map);
     },
 });
