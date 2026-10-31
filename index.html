@@ -61,10 +61,30 @@
         border: 1px solid var(--ol-foreground-color);
         transition: opacity 100ms ease-in;
       }
+    #allotment_clear_button {
+        z-index: 1;
+        position: absolute;
+        left: 79px;
+        width: 20px;
+        margin: 0;
+	padding: 0;
+	top: 9px;
+	height: 20px;
+	line-height: 1;
+        background:  var(--ol-partial-background-color);
+        box-sizing: border-box;
+        border: 1px solid var(--ol-subtle-foreground-color);
+    }
+    /* größere Trefferfläche auf dem Handy */
+    #allotment_clear_button::after {
+        content: "";
+        position: absolute;
+        inset: -12px 0;
+    }
     #allotment_number_button {
         z-index: 1;
         position: absolute;
-        left: 80px;
+        left: 100px;
         margin: 0;
 	top: 9px;
 	height: 20px;

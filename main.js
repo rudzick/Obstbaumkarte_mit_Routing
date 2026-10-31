@@ -38,8 +38,17 @@ class FindAllotmentPlots extends Control {
       allotment_number_button.id = "allotment_number_button";
       allotment_number_button.innerHTML = "finde Parzelle";
 
+      const allotment_clear_button = document.createElement('button');
+      allotment_clear_button.className = 'ol-control button';
+      allotment_clear_button.type = "button";
+      allotment_clear_button.id = "allotment_clear_button";
+      allotment_clear_button.title = "Parzellensuche löschen";
+      allotment_clear_button.setAttribute('aria-label', "Parzellensuche löschen");
+      allotment_clear_button.innerHTML = "×";
+
       const element = document.createElement('div');
       element.appendChild(allotment_number_field);
+      element.appendChild(allotment_clear_button);
       element.appendChild(allotment_number_button);
 
       super({
@@ -48,6 +57,7 @@ class FindAllotmentPlots extends Control {
       });
 
       allotment_number_button.addEventListener('click', this.handleFindAllotmentPlots.bind(this), false);
+      allotment_clear_button.addEventListener('click', this.handleClearAllotmentPlots.bind(this), false);
       allotment_number_field.addEventListener('keydown', (event) => {
 	  if (event.key === 'Enter') this.handleFindAllotmentPlots();
       });
@@ -58,6 +68,14 @@ class FindAllotmentPlots extends Control {
       refreshPlotHighlight(this.getMap());
       updatePermalink();
       centerOnSearchedPlots(this.getMap());
+  };
+
+  handleClearAllotmentPlots() {
+      allotment_number_field.value = "";
+      plot_nrs = [];
+      plotSearchNumber++;  // eine noch laufende Suche soll die Karte nicht mehr bewegen
+      refreshPlotHighlight(this.getMap());
+      updatePermalink();
   };
 }
 
