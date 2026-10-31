@@ -149,6 +149,9 @@ class RoutingPanel extends Control {
 	this.onChange = () => {};
 	// sucht ein Ziel zu einer Parzellennummer, siehe addRouting
 	this.findPlot = async () => null;
+	// eingegebene Parzellennummer des Ziels; wird hervorgehoben, siehe addRouting
+	this.endPlot = null;
+	this.onEndPlotChange = () => {};
 	this.routeSource = new VectorSource();
 	this.layer = new VectorLayer({
 	    source: this.routeSource,
@@ -162,7 +165,10 @@ class RoutingPanel extends Control {
 	    filter: (feature) => feature.get('role') !== undefined,
 	});
 	this.translate.on('translateend', (event) => {
-	    event.features.forEach((feature) => this.updateInputFromMarker(feature.get('role')));
+	    event.features.forEach((feature) => {
+		this.updateInputFromMarker(feature.get('role'));
+		if (feature.get('role') === 'end') this.setEndPlot(null);
+	    });
 	    this.calculateRoute();
 	});
 	this.abortController = null;
@@ -201,7 +207,7 @@ class RoutingPanel extends Control {
     // Punkte für den Permalink, jeweils [lon, lat] oder null
     getPermalinkState() {
 	const lonLat = (role) => this.markers[role] ? toLonLat(this.markers[role].getGeometry().getCoordinates()) : null;
-	return {profile: this.profileSelect.value, start: lonLat('start'), via: lonLat('via'), end: lonLat('end')};
+	return {profile: this.profileSelect.value, start: lonLat('start'), via: lonLat('via'), end: lonLat('end'), endPlot: this.endPlot};
     }
 
     // Route aus dem Permalink wiederherstellen; fehlt Start oder Ziel, wird danach gefragt
@@ -211,6 +217,13 @@ class RoutingPanel extends Control {
 	ROLES.forEach((role) => {
 	    if (state[role]) this.setMarker(role, fromLonLat(state[role]));
 	});
+	if (state.end && state.endPlot) {
+	    this.endMode.value = 'plot';
+	    this.updateEndMode();
+	    this.inputs.end.value = state.endPlot;
+	    this.inputs.end.dataset.resolved = state.endPlot;
+	    this.setEndPlot(state.endPlot);
+	}
 	if (!state.start) {
 	    this.inputs.start.focus();
 	} else if (!state.end) {
@@ -265,7 +278,14 @@ class RoutingPanel extends Control {
 	this.calculateRoute();
     }
 
+    setEndPlot(text) {
+	if (text === this.endPlot) return;
+	this.endPlot = text;
+	this.onEndPlotChange(text);
+    }
+
     setMarker(role, coordinate) {
+	if (role === 'end') this.setEndPlot(null);
 	if (this.markers[role]) {
 	    this.markers[role].getGeometry().setCoordinates(coordinate);
 	} else {
@@ -278,6 +298,7 @@ class RoutingPanel extends Control {
     }
 
     removeMarker(role) {
+	if (role === 'end') this.setEndPlot(null);
 	const feature = this.markers[role];
 	if (!feature) return;
 	this.routeSource.removeFeature(feature);
@@ -320,6 +341,7 @@ class RoutingPanel extends Control {
 		this.setMarker(role, await this.locate(role, text));
 		input.value = text;
 		input.dataset.resolved = text;
+		if (role === 'end' && this.endMode.value === 'plot') this.setEndPlot(text);
 	    }
 	} catch (error) {
 	    this.status.textContent = error.message;
@@ -431,6 +453,7 @@ export function addRouting(map, options = {}) {
     const panel = new RoutingPanel();
     if (options.onChange) panel.onChange = options.onChange;
     if (options.findPlot) panel.findPlot = options.findPlot;
+    if (options.onEndPlotChange) panel.onEndPlotChange = options.onEndPlotChange;
 
     const button = document.createElement('button');
     button.type = 'button';

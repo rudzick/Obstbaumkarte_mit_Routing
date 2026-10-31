@@ -55,15 +55,20 @@ class FindAllotmentPlots extends Control {
 
   handleFindAllotmentPlots() {
       plot_nrs = normalizePlots(document.getElementById("allotment_number_field").value);
-      this.getMap().getLayers().getArray()
-	  .filter(layer => ['parzellengrenzen', 'parzelleneingaenge'].includes(layer.get('name')))
-	  .forEach(layer => layer.setStyle(styleFunction));
+      refreshPlotHighlight(this.getMap());
       updatePermalink();
       centerOnSearchedPlots(this.getMap());
   };
 }
 
 var plot_nrs = [' '];
+var route_plot_nrs = [];  // Parzelle als Routenziel
+
+function refreshPlotHighlight(map) {
+    map.getLayers().getArray()
+	.filter(layer => ['parzellengrenzen', 'parzelleneingaenge'].includes(layer.get('name')))
+	.forEach(layer => layer.setStyle(styleFunction));
+}
 
 // "III/23b + III/22" -> ['iii23b', 'iii22'], so normalisiert wie die refs in styleFunction
 function normalizePlots(text) {
@@ -197,6 +202,15 @@ var plothighlightStyle = new Style({
     }),
 });
 
+// beim Routenziel liegt der Zielmarker auf dem Eingang, der Ring muss ihn umschließen
+var routePlotHighlightStyle = new Style({
+    stroke: plothighlightStroke,
+    image: new Circle({
+	radius: 13,
+	stroke: plothighlightStroke,
+    }),
+});
+
 function plotRef(feature) {
     return (feature.get('ref') || '').replace(/[^0-9a-zA-ZZäöüÄÖÜß]+/g,"").toLowerCase();
 }
@@ -209,6 +223,9 @@ function isPlotAmong(feature, nrs) {
 }
 
 var styleFunction = function(feature, resolution) {
+    if (isPlotAmong(feature, route_plot_nrs)) {
+	return(routePlotHighlightStyle);
+    }
     if (isPlotAmong(feature, plot_nrs)) {
 	return(plothighlightStyle);
     }
@@ -429,6 +446,10 @@ const map = new Map({
 const routing = addRouting(map, {
     onChange: () => updatePermalink(),
     findPlot: (text) => findPlotDestination(map, text),
+    onEndPlotChange: (text) => {
+	route_plot_nrs = text ? normalizePlots(text) : [];
+	refreshPlotHighlight(map);
+    },
 });
 
 map.on('pointermove', showInfo);
@@ -494,6 +515,9 @@ var updatePermalink = function() {
       .map(([key, lonLat]) => key + '=' + formatLatLon(lonLat));
   if (routeParts.length) {
       hash = hash + '&' + routeParts.join('&') + '&profil=' + route.profile;
+      if (route.endPlot) {
+	  hash = hash + '&zielparzelle=' + encodeURIComponent(route.endPlot);
+      }
   }
   var state = {
     zoom: view.getZoom(),
@@ -511,6 +535,7 @@ if (['start', 'via', 'ziel'].some(key => routeParams.has(key))) {
 	start: parseLatLon(routeParams.get('start')),
 	via: parseLatLon(routeParams.get('via')),
 	end: parseLatLon(routeParams.get('ziel')),
+	endPlot: routeParams.get('zielparzelle'),
     });
 }
 
