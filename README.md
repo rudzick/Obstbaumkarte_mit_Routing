@@ -39,7 +39,7 @@ Profile auf dem Server aktualisieren:
 
 Wöchentliches Datenupdate (aktiviert): `graphhopper-update.timer`
 startet sonntags gegen 4:30 `graphhopper-update.service`. Der lädt den Deutschland-Extrakt neu,
-taggt mit `tag_landuse.py` die Sperrgebiete und baut den Graphen in `graph-cache-new`
+taggt mit `tag_landuse.py` die Sperrgebiete und die privaten Wege in Kleingärten und baut den Graphen in `graph-cache-new`
 (niedrigste CPU-/IO-Priorität, max. 26 GB RAM, Dauer ca. 5 h). Erst danach tauscht `activate-graph.sh`
 den Graphen ein und startet GraphHopper neu (nur wenn der Dienst läuft); antwortet er
 nicht, kommt der alte Graph zurück.

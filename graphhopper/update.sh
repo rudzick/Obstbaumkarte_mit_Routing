@@ -13,7 +13,7 @@ PBF=data/$(basename "$PBF_URL")
 curl -fsSL -o "$PBF.new" "$PBF_URL"
 mv "$PBF.new" "$PBF"
 
-./tag_landuse.py "$PBF" data/deine_region_modifiziert.osm.pbf --landuse military
+./tag_landuse.py "$PBF" data/deine_region_modifiziert.osm.pbf --landuse military --private-landuse allotments
 
 rm -rf graph-cache-new
 java -Xmx20g -Ddw.graphhopper.graph.location=graph-cache-new -jar graphhopper-web-11.1.jar import config.yml

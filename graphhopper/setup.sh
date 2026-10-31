@@ -17,7 +17,7 @@ fi
 mkdir -p data
 curl -fL -o "$PBF" "$PBF_URL"
 
-./tag_landuse.py "$PBF" data/deine_region_modifiziert.osm.pbf --landuse military
+./tag_landuse.py "$PBF" data/deine_region_modifiziert.osm.pbf --landuse military --private-landuse allotments
 
 # alter Graph passt nicht mehr zu den neuen Daten
 rm -rf graph-cache
