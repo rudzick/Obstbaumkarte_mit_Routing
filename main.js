@@ -201,7 +201,7 @@ var styleFunction = function(feature, resolution) {
 	ref = feature.get('ref').replace(/[^0-9a-zA-ZZäöüÄÖÜß]+/g,"").toLowerCase();
     }
 //    console.log(plot_nrs, ref );
-    if (['table.public.allotment_plots.geom', 'table.public.allotment_plot_number.geom'].includes(feature.get('layer'))
+    if (['table.public.allotment_plots.geom', 'table.public.allotment_plot_entrances.geom'].includes(feature.get('layer'))
 	&& (plot_nrs.includes(ref))
 	&& (ref.length)) {
     return(plothighlightStyle);
@@ -257,7 +257,7 @@ const map = new Map({
 	    name: 'parzelleneingaenge',
 	    source: new VectorTileSource({
 		format: new MVT(),
-		url: 'https://sbtiles.obstbaumkarte.de/table.public.allotment_plot_number.geom/{z}/{x}/{y}',
+		url: 'https://sbtiles.obstbaumkarte.de/table.public.allotment_plot_entrances.geom/{z}/{x}/{y}',
 		crossOrigin: 'anonymous',
 	    }),
 	    minZoom: 14,
