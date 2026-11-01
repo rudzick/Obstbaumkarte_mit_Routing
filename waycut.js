@@ -23,7 +23,8 @@ const VIA_SECTION_WEIGHT = 1000000;    // normale Routen im Umkreis bleiben weit
 const MAX_VISITED_NODES = 200000;
 const CHECK_SPACING = 20;              // m; so dicht liegen die Prüfpunkte auf dem Abschnitt
 const CHECK_BOX = 0.25;                // m; halbe Kantenlänge eines Prüfpunkts
-const MAX_SECTION_LENGTH = 3000;       // m
+const MAX_SECTION_LENGTH = 3000;       // m, alle Zweige zusammen
+const BRANCH_SNAP_DISTANCE = 15;       // m; so nah am Abschnitt setzt ein Zweig an ihm an
 const SEARCH_RADIUS = 1500;            // m um den Abschnitt
 const REFERENCE_DISTANCE = 3000;       // m; dorthin muss ein Eingang gelangen können
 const PARALLEL_REQUESTS = 6;
@@ -39,6 +40,7 @@ const markerStyle = (color) => new Style({
     zIndex: 2,
 });
 const beginStyle = markerStyle('#2a9d3a');
+const waypointStyle = markerStyle('#f08c00');
 const endStyle = markerStyle('#d62828');
 const sectionStyle = [
     new Style({stroke: new Stroke({color: 'rgba(255,255,255,0.9)', width: 9}), zIndex: 1}),
@@ -101,6 +103,11 @@ class WayCutPanel extends Control {
 	    ${PROFILES.map(([id, label]) => `<option value="${id}">${label}</option>`).join('')}
 	  </select>
 	  <div class="waycut-hint"></div>
+	  <div class="waycut-actions">
+	    <button type="button" class="waycut-branch" disabled title="Der nächste Klick beginnt einen Zweig, zum Beispiel an einer Einmündung">Neuer Zweig</button>
+	    <button type="button" class="waycut-undo" disabled title="Letzten Punkt entfernen">Zurück</button>
+	    <button type="button" class="waycut-new" disabled title="Ganzen Abschnitt entfernen">Neu</button>
+	  </div>
 	  <button type="button" class="routing-go waycut-go" disabled>Parzellen suchen</button>
 	  <div class="routing-status waycut-status"></div>
 	  <button type="button" class="routing-go waycut-export" hidden>Liste für Excel speichern</button>
@@ -117,18 +124,31 @@ class WayCutPanel extends Control {
 	this.exportButton = element.querySelector('.waycut-export');
 	this.exportRefs = [];
 
-	this.begin = null;
-	this.end = null;
-	this.section = null;  // [lon, lat]-Liste
-	this.run = null;      // AbortController der laufenden Suche
+	this.branchButton = element.querySelector('.waycut-branch');
+	this.undoButton = element.querySelector('.waycut-undo');
+	this.newButton = element.querySelector('.waycut-new');
+
+	// Zweige des Abschnitts: {points: [[lon, lat]…], legs: [{coordinates, distance}…]};
+	// legs[i] ist die Route von points[i] nach points[i + 1]
+	this.branches = [];
+	this.startBranch = false;      // der nächste Klick beginnt einen Zweig
+	this.picking = Promise.resolve();  // Klicks der Reihe nach abarbeiten
+	this.generation = 0;           // ändert sich, wenn laufende Routen veraltet sind
+	this.run = null;               // AbortController der laufenden Suche
 	this.source = new VectorSource();
 	this.layer = new VectorLayer({source: this.source, name: 'wegabschnitt', zIndex: 11});
 
 	element.querySelector('.routing-close').addEventListener('click', () => this.close());
 	this.goButton.addEventListener('click', () => this.run ? this.stop() : this.search());
 	this.exportButton.addEventListener('click', () => this.exportList());
-	this.profileSelect.addEventListener('change', () => this.updateSection());
-	this.updateHint();
+	this.branchButton.addEventListener('click', () => {
+	    this.startBranch = true;
+	    this.updateControls();
+	});
+	this.undoButton.addEventListener('click', () => this.enqueue(() => this.undo()));
+	this.newButton.addEventListener('click', () => this.reset());
+	this.profileSelect.addEventListener('change', () => this.enqueue(() => this.recalculate()));
+	this.updateControls();
     }
 
     setMap(map) {
@@ -136,7 +156,7 @@ class WayCutPanel extends Control {
 	if (!map) return;
 	map.addLayer(this.layer);
 	map.on('singleclick', (event) => {
-	    if (!this.element.hidden) this.pick(event.coordinate);
+	    if (!this.element.hidden) this.enqueue(() => this.addPoint(toLonLat(event.coordinate)));
 	});
     }
 
@@ -160,10 +180,12 @@ class WayCutPanel extends Control {
 
     reset() {
 	this.stop();
-	this.begin = this.end = this.section = null;
+	this.generation++;
+	this.branches = [];
+	this.startBranch = false;
 	this.source.clear();
 	this.clearResults();
-	this.updateHint();
+	this.updateControls();
     }
 
     stop() {
@@ -189,72 +211,162 @@ class WayCutPanel extends Control {
 	setTimeout(() => URL.revokeObjectURL(link.href), 10000);
     }
 
-    updateHint() {
-	this.hint.textContent = !this.begin ? 'Anfang des Abschnitts in der Karte anklicken.'
-	    : !this.end ? 'Ende des Abschnitts in der Karte anklicken.'
-	    : 'Ein weiterer Klick beginnt einen neuen Abschnitt.';
-	this.goButton.textContent = 'Parzellen suchen';
-	this.goButton.disabled = !this.section;
+    get legs() {
+	return this.branches.flatMap((branch) => branch.legs);
     }
 
-    pick(coordinate) {
-	if (this.begin && this.end) this.reset();
-	const lonLat = toLonLat(coordinate);
-	if (!this.begin) this.begin = lonLat; else this.end = lonLat;
-	this.updateSection();
+    get sectionCoordinates() {
+	return this.legs.flatMap((leg) => leg.coordinates);
     }
 
-    drawMarkers() {
-	this.source.clear();
-	[[this.begin, beginStyle], [this.end, endStyle]].forEach(([lonLat, style]) => {
-	    if (!lonLat) return;
-	    const marker = new Feature(new Point(fromLonLat(lonLat)));
-	    marker.setStyle(style);
-	    this.source.addFeature(marker);
+    get sectionLength() {
+	return this.legs.reduce((sum, leg) => sum + leg.distance, 0);
+    }
+
+    updateControls() {
+	const hasPoints = this.branches.length > 0;
+	const hasLegs = this.legs.length > 0;
+	const last = this.branches[this.branches.length - 1];
+	this.hint.textContent = this.startBranch ? 'Anfang des Zweigs anklicken, zum Beispiel die Einmündung.'
+	    : !hasPoints ? 'Anfang des Abschnitts in der Karte anklicken.'
+	    : last.points.length === 1 ? 'Nächsten Punkt in der Karte anklicken.'
+	    : 'Weitere Klicks verlängern den Abschnitt. „Neuer Zweig“ beginnt eine Abzweigung.';
+	this.goButton.textContent = this.run ? 'Suche abbrechen' : 'Parzellen suchen';
+	this.goButton.disabled = !hasLegs;
+	this.branchButton.disabled = !hasLegs;
+	this.branchButton.classList.toggle('waycut-armed', this.startBranch);
+	this.undoButton.disabled = !hasPoints;
+	this.newButton.disabled = !hasPoints;
+    }
+
+    enqueue(task) {
+	this.picking = this.picking.then(task).catch((error) => {
+	    this.status.textContent = 'Fehler: ' + error.message;
 	});
+	return this.picking;
     }
 
-    // Der Abschnitt ist die Route zwischen den beiden Klicks im Routing-Graphen
-    async updateSection() {
-	this.stop();
-	this.clearResults();
-	this.section = null;
-	this.drawMarkers();
-	this.updateHint();
-	if (!this.begin || !this.end) return;
+    showSection() {
+	this.source.clear();
+	this.legs.forEach((leg) => {
+	    const line = new Feature(new LineString(leg.coordinates.map((c) => fromLonLat(c))));
+	    line.setStyle(sectionStyle);
+	    this.source.addFeature(line);
+	});
+	this.branches.forEach((branch) => {
+	    branch.points.forEach((lonLat, index) => {
+		const marker = new Feature(new Point(fromLonLat(lonLat)));
+		marker.setStyle(index === 0 ? beginStyle
+				: index === branch.points.length - 1 ? endStyle : waypointStyle);
+		this.source.addFeature(marker);
+	    });
+	});
+	this.updateControls();
+    }
 
-	const requested = [this.begin, this.end];
+    showLength() {
+	this.status.textContent = this.legs.length ? 'Abschnitt: ' + formatDistance(this.sectionLength) : '';
+    }
+
+    // Die Route zwischen zwei Punkten im Routing-Graphen
+    async fetchLeg(from, to) {
 	const params = new URLSearchParams({
 	    profile: this.profileSelect.value, points_encoded: 'false', instructions: 'false',
 	});
-	requested.forEach((p) => params.append('point', p[1] + ',' + p[0]));
-	this.status.textContent = 'Suche den Abschnitt …';
-	let path;
-	try {
-	    const response = await fetch(GRAPHHOPPER_URL + '/route?' + params);
-	    const data = await response.json();
-	    if (!response.ok) throw new Error(data.message || response.statusText);
-	    path = data.paths[0];
-	} catch (error) {
-	    this.status.textContent = 'Kein Abschnitt gefunden: ' + error.message;
+	[from, to].forEach((p) => params.append('point', p[1] + ',' + p[0]));
+	const response = await fetch(GRAPHHOPPER_URL + '/route?' + params);
+	const data = await response.json();
+	if (!response.ok) throw new Error(data.message || response.statusText);
+	const path = data.paths[0];
+	return {coordinates: path.points.coordinates, distance: path.distance};
+    }
+
+    // Ein Zweig setzt am Abschnitt an, wenn er nah genug daran beginnt; ein Klick trifft
+    // die Einmündung sonst nie genau
+    branchStart(lonLat) {
+	let nearest = lonLat, nearestDistance = BRANCH_SNAP_DISTANCE;
+	this.sectionCoordinates.forEach((coordinate) => {
+	    const distance = distanceMeters(coordinate, lonLat);
+	    if (distance < nearestDistance) {
+		nearest = coordinate;
+		nearestDistance = distance;
+	    }
+	});
+	return nearest;
+    }
+
+    async addPoint(lonLat) {
+	this.stop();
+	const generation = this.generation;
+	this.clearResults();
+	if (this.startBranch || this.branches.length === 0) {
+	    this.branches.push({points: [this.startBranch ? this.branchStart(lonLat) : lonLat], legs: []});
+	    this.startBranch = false;
+	    this.showSection();
+	    this.showLength();
 	    return;
 	}
-	if (requested[0] !== this.begin || requested[1] !== this.end) return;  // inzwischen neu geklickt
-	if (path.distance > MAX_SECTION_LENGTH) {
-	    this.status.textContent = 'Der Abschnitt ist mit ' + formatDistance(path.distance)
+	const branch = this.branches[this.branches.length - 1];
+	const previous = branch.points[branch.points.length - 1];
+	this.status.textContent = 'Suche den Abschnitt …';
+	let leg;
+	try {
+	    leg = await this.fetchLeg(previous, lonLat);
+	} catch (error) {
+	    if (generation === this.generation) this.status.textContent = 'Kein Weg dorthin gefunden: ' + error.message;
+	    return;
+	}
+	if (generation !== this.generation) return;  // inzwischen neu begonnen
+	if (this.sectionLength + leg.distance > MAX_SECTION_LENGTH) {
+	    this.status.textContent = 'Der Abschnitt wäre mit ' + formatDistance(this.sectionLength + leg.distance)
 		+ ' zu lang (höchstens ' + formatDistance(MAX_SECTION_LENGTH) + ').';
 	    return;
 	}
-	if (path.points.coordinates.length < 2 || path.distance < 1) {
-	    this.status.textContent = 'Anfang und Ende liegen auf demselben Punkt.';
+	branch.points.push(lonLat);
+	branch.legs.push(leg);
+	this.showSection();
+	this.showLength();
+    }
+
+    undo() {
+	this.stop();
+	this.clearResults();
+	if (this.startBranch) {
+	    this.startBranch = false;
+	} else {
+	    const branch = this.branches[this.branches.length - 1];
+	    if (branch) {
+		branch.points.pop();
+		branch.legs.pop();
+		if (branch.points.length === 0) this.branches.pop();
+	    }
+	}
+	this.showSection();
+	this.showLength();
+    }
+
+    // Ein anderes Profil kann andere Wege nehmen
+    async recalculate() {
+	this.stop();
+	this.clearResults();
+	const generation = this.generation;
+	try {
+	    for (const branch of this.branches) {
+		const legs = [];
+		for (let i = 0; i + 1 < branch.points.length; i++) {
+		    legs.push(await this.fetchLeg(branch.points[i], branch.points[i + 1]));
+		    if (generation !== this.generation) return;
+		}
+		branch.legs = legs;
+	    }
+	} catch (error) {
+	    if (generation !== this.generation) return;
+	    this.reset();
+	    this.status.textContent = 'Für dieses Profil gibt es keinen solchen Abschnitt: ' + error.message;
 	    return;
 	}
-	this.section = path.points.coordinates;
-	const line = new Feature(new LineString(this.section.map((c) => fromLonLat(c))));
-	line.setStyle(sectionStyle);
-	this.source.addFeature(line);
-	this.status.textContent = 'Abschnitt: ' + formatDistance(path.distance);
-	this.updateHint();
+	this.showSection();
+	this.showLength();
     }
 
     // 'via': nur über den Abschnitt, 'ok': auch ohne, 'none': gar nicht, 'unknown': keine Antwort
@@ -284,25 +396,34 @@ class WayCutPanel extends Control {
 	return /not found|Cannot find point/i.test(data.message || '') ? 'none' : 'unknown';
     }
 
-    // Ein Ziel außerhalb, das vom Abschnitt aus ohne Umweg über ihn erreichbar ist
+    // Ein Ziel außerhalb des abgeschnittenen Bereichs: Es muss andere Ziele oder die Punkte des
+    // Abschnitts erreichen, ohne über ihn zu führen. Die Enden allein reichen nicht, sie können
+    // Sackgassen sein, während der Ausgang in der Mitte des Abschnitts liegt.
     async findReference(customModel, signal) {
-	const center = this.section[Math.floor(this.section.length / 2)];
+	const coordinates = this.sectionCoordinates;
+	const center = coordinates[Math.floor(coordinates.length / 2)];
 	const dLat = REFERENCE_DISTANCE / metersPerDegreeLat;
 	const dLon = REFERENCE_DISTANCE / metersPerDegreeLon(center[1]);
 	const candidates = [[dLon, 0], [-dLon, 0], [0, dLat], [0, -dLat]]
 	    .map(([x, y]) => [center[0] + x, center[1] + y]);
-	const ends = [this.section[0], this.section[this.section.length - 1]];
-	let best = null, bestCount = 0;
-	for (const candidate of candidates) {
-	    const answers = await Promise.all(ends.map((end) => this.check(end, candidate, customModel, signal)));
-	    const count = answers.filter((answer) => answer === 'ok').length;
-	    if (count > bestCount) {
-		best = candidate;
-		bestCount = count;
+	const counts = candidates.map(() => 0);
+	const pairs = candidates.flatMap((_, i) => candidates.map((__, j) => [i, j]).slice(i + 1));
+	await Promise.all(pairs.map(async ([i, j]) => {
+	    if (await this.check(candidates[i], candidates[j], customModel, signal) === 'ok') {
+		counts[i]++;
+		counts[j]++;
 	    }
-	    if (bestCount === ends.length) break;
+	}));
+	const best = counts.indexOf(Math.max(...counts));
+	if (counts[best] > 0) return candidates[best];
+
+	// keine zwei Ziele verbunden: wenigstens von einem Punkt des Abschnitts erreichbar
+	const points = this.branches.flatMap((branch) => branch.points);
+	for (const candidate of candidates) {
+	    const answers = await Promise.all(points.map((point) => this.check(point, candidate, customModel, signal)));
+	    if (answers.includes('ok')) return candidate;
 	}
-	return best;
+	return null;
     }
 
     async loadTiles(layerName, extent, signal) {
@@ -331,14 +452,18 @@ class WayCutPanel extends Control {
 	const run = new AbortController();
 	this.run = run;
 	this.clearResults();
-	this.goButton.textContent = 'Suche abbrechen';
+	this.updateControls();
 	try {
 	    await this.searchPlots(run.signal);
 	} catch (error) {
-	    this.status.textContent = error.name === 'AbortError' ? 'Suche abgebrochen.' : 'Fehler: ' + error.message;
+	    if (error.name !== 'AbortError') {
+		this.status.textContent = 'Fehler: ' + error.message;
+	    } else if (this.legs.length) {
+		this.status.textContent = 'Suche abgebrochen.';
+	    }
 	}
-	this.run = null;
-	if (this.section) this.goButton.textContent = 'Parzellen suchen';
+	if (this.run === run) this.run = null;
+	this.updateControls();
     }
 
     async searchPlots(signal) {
@@ -346,29 +471,37 @@ class WayCutPanel extends Control {
 	    priority: [{if: 'in_wegabschnitt', multiply_by: SECTION_PRIORITY}],
 	    areas: {type: 'FeatureCollection', features: [{
 		type: 'Feature', id: 'wegabschnitt', properties: {},
-		geometry: {type: 'MultiPolygon', coordinates: checkPoints(this.section).map(checkBox)},
+		geometry: {
+		    type: 'MultiPolygon',
+		    coordinates: this.legs.flatMap((leg) => checkPoints(leg.coordinates)).map(checkBox),
+		},
 	    }]},
 	};
 
 	this.status.textContent = 'Lade Parzellen …';
-	const sectionExtent = boundingExtent(this.section.map((c) => fromLonLat(c)));
-	const lat = this.section[0][1];
+	const coordinates = this.sectionCoordinates;
+	const sectionExtent = boundingExtent(coordinates.map((c) => fromLonLat(c)));
+	const lat = coordinates[0][1];
 	const extent = buffer(sectionExtent, SEARCH_RADIUS / Math.cos(lat * Math.PI / 180));
 	const [entranceFeatures, plotFeatures] = await Promise.all([
 	    this.loadTiles('parzelleneingaenge', extent, signal),
 	    this.loadTiles('parzellengrenzen', extent, signal),
 	]);
 
-	// Kacheln überlappen: jeden Eingang einmal, jede Parzelle zusammengesetzt
+	// Kacheln überlappen: jeden Eingang einmal, auch wenn sich Parzellen ein Tor teilen
 	const entrancesById = {};
 	entranceFeatures.forEach((feature) => {
 	    const id = feature.get('node_id');
-	    if (entrancesById[id]) return;
+	    const ref = feature.get('ref') || '';
+	    if (entrancesById[id]) {
+		if (!entrancesById[id].refs.includes(ref)) entrancesById[id].refs.push(ref);
+		return;
+	    }
 	    const coordinate = getCenter(feature.getExtent());
 	    const lonLat = toLonLat(coordinate);
 	    entrancesById[id] = {
-		id: id, ref: feature.get('ref') || '', coordinate: coordinate, lonLat: lonLat,
-		distance: Math.min(...this.section.map((c) => distanceMeters(c, lonLat))),
+		id: id, refs: [ref], coordinate: coordinate, lonLat: lonLat,
+		distance: Math.min(...coordinates.map((c) => distanceMeters(c, lonLat))),
 		answer: null,
 	    };
 	});
@@ -419,18 +552,20 @@ class WayCutPanel extends Control {
 	const withoutPlot = [];
 	entrances.forEach((entrance) => {
 	    const point = [...entrance.coordinate, ...entrance.coordinate];
-	    const plot = plots.find((candidate) => candidate.ref === entrance.ref
-		&& containsExtent(buffer(candidate.extent, 5), point));
-	    if (plot) plot.entrances.push(entrance); else withoutPlot.push(entrance);
+	    entrance.refs.forEach((ref) => {
+		const plot = plots.find((candidate) => candidate.ref === ref
+		    && containsExtent(buffer(candidate.extent, 5), point));
+		if (plot) plot.entrances.push(entrance); else withoutPlot.push({ref: ref, entrance: entrance});
+	    });
 	});
 
-	// Eine Parzelle zählt nur, wenn keiner ihrer Eingänge anders erreichbar ist
+	// Eine Parzelle zählt, sobald einer ihrer Eingänge nur über den Abschnitt erreichbar ist;
+	// hervorgehoben werden nur diese Eingänge
 	const found = plots
-	    .filter((plot) => plot.entrances.some((entrance) => entrance.answer === 'via')
-		    && !plot.entrances.some((entrance) => entrance.answer === 'ok'))
+	    .filter((plot) => plot.entrances.some((entrance) => entrance.answer === 'via'))
 	    .map((plot) => ({ref: plot.ref, plotId: plot.id, entrances: plot.entrances.filter((e) => e.answer === 'via')}));
-	withoutPlot.filter((entrance) => entrance.answer === 'via')
-	    .forEach((entrance) => found.push({ref: entrance.ref, plotId: null, entrances: [entrance]}));
+	withoutPlot.filter(({entrance}) => entrance.answer === 'via')
+	    .forEach(({ref, entrance}) => found.push({ref: ref, plotId: null, entrances: [entrance]}));
 	found.sort((a, b) => naturalCompare(a.ref, b.ref));
 
 	this.onHighlight(
@@ -451,8 +586,8 @@ class WayCutPanel extends Control {
 
 	const count = (answer) => entrances.filter((entrance) => entrance.answer === answer).length;
 	const parts = [
-	    found.length === 1 ? '1 Parzelle nur über diesen Abschnitt erreichbar.'
-		: found.length + ' Parzellen nur über diesen Abschnitt erreichbar.',
+	    found.length === 1 ? '1 Parzelle hat Eingänge, die nur über diesen Abschnitt erreichbar sind.'
+		: found.length + ' Parzellen haben Eingänge, die nur über diesen Abschnitt erreichbar sind.',
 	    tested + ' Eingänge geprüft.',
 	];
 	if (count('none')) parts.push(count('none') + ' Eingänge haben auch sonst keine Verbindung.');
