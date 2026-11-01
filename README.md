@@ -6,7 +6,7 @@ Der Button „⤳“ links in der Karte öffnet ein Panel zur Routenplanung. Sta
 Ziel werden per Klick in die Karte gesetzt (Marker lassen sich verschieben) oder als Ort bzw.
 „Breite, Länge“ eingegeben (Ortssuche über Nominatim); das Ziel auch als Parzellennummer.
 Profile: Zu Fuß, Fahrrad, Rollstuhl / Kinderwagen, Auto. Der Button „✂“ zeigt, welche Parzellen
-nur über einen gewählten Wegabschnitt erreichbar sind.
+nur über einen gewählten Wegabschnitt erreichbar sind, auf Wunsch beschränkt auf ein gezeichnetes Gebiet.
 
 Bedienung, Datenaufbereitung und Verfahren: [docs/routing.md](docs/routing.md).
 

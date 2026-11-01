@@ -156,13 +156,34 @@ umgekehrt.
 3. Für eine Abzweigung „Neuer Zweig“ drücken und den Anfang des Zweigs anklicken. Liegt der Klick
    höchstens 15 m neben dem Abschnitt, setzt der Zweig am nächsten Punkt des Abschnitts an, sonst
    beginnt ein getrenntes Stück.
-4. „Parzellen suchen“ drücken. Die Suche lässt sich abbrechen.
+4. Optional: Mit „Gebiet zeichnen“ die Prüfung auf ein Gebiet beschränken (siehe unten).
+5. „Parzellen suchen“ drücken. Die Suche lässt sich abbrechen.
 
-„Zurück“ entfernt den letzten Punkt oder bricht einen begonnenen Zweig ab, „Neu“ löscht alles.
+„Zurück“ entfernt den letzten Punkt oder bricht einen begonnenen Zweig ab, beim Zeichnen die letzte
+Ecke des Gebiets. „Neu“ löscht den Abschnitt; das Gebiet bleibt, bis es gelöscht oder das Panel
+geschlossen wird.
 
 Die Treffer stehen als Liste im Panel; ein Klick darauf zentriert die Karte. Parzellen und betroffene
 Eingänge werden hervorgehoben, und zwar genau diese Objekte, nicht alle mit derselben Nummer.
 „Liste für Excel speichern“ erzeugt `parzellen-wegabschnitt.csv`.
+
+### Gebiet (optional)
+
+Ohne Gebiet prüft das Werkzeug den Umkreis um den Abschnitt, wie unter „Einstellungen“ beschrieben.
+Mit Gebiet gilt stattdessen:
+
+- Geprüft werden nur Parzellen, die **vollständig** im Gebiet liegen. Parzellen außerhalb und solche,
+  die die Gebietsgrenze schneiden oder berühren, entfallen. Das gilt auch, wenn nur eine Ecke des
+  Gebiets in eine Parzelle hineinragt.
+- Der Umkreis von 1,5 km und das vorzeitige Ende gelten nicht. Das Gebiet darf weiter entfernt liegen,
+  und alle Eingänge seiner Parzellen werden geprüft.
+- Das Gebiet darf höchstens 6 km breit und hoch sein und auch konkav sein.
+- Der Abschnitt selbst und die Wege gehören nicht zur Auswahl: Ob ein Eingang abgeschnitten ist, hängt
+  weiter vom ganzen Wegenetz ab, auch außerhalb des Gebiets.
+- Eingänge, die keiner Parzelle zugeordnet werden können, entfallen.
+
+Zum Zeichnen die Ecken anklicken; ein Doppelklick oder ein Klick auf den ersten Punkt schließt das Gebiet
+ab. Ein neues Gebiet ersetzt das alte, „Gebiet löschen“ stellt den Umkreis wieder her.
 
 ### Was als Treffer zählt
 
@@ -229,8 +250,9 @@ Die Werte stehen am Anfang von `waycut.js`:
 
 | Konstante | Wert | Bedeutung |
 |---|---|---|
-| `SEARCH_RADIUS` | 1500 m | Umkreis der geprüften Eingänge |
-| `STOP_AFTER_REACHABLE` | 400 | so viele erreichbare Eingänge in Folge beenden die Suche |
+| `SEARCH_RADIUS` | 1500 m | Umkreis der geprüften Eingänge (ohne Gebiet) |
+| `STOP_AFTER_REACHABLE` | 400 | so viele erreichbare Eingänge in Folge beenden die Suche (ohne Gebiet) |
+| `MAX_AREA_SIZE` | 6000 m | größte Breite und Höhe eines Gebiets |
 | `MAX_SECTION_LENGTH` | 3000 m | Höchstlänge aller Zweige zusammen |
 | `BRANCH_SNAP_DISTANCE` | 15 m | so nah am Abschnitt setzt ein Zweig an ihm an |
 | `REFERENCE_DISTANCE` | 3000 m | Entfernung der möglichen Bezugspunkte |
@@ -244,10 +266,10 @@ Eine Suche sendet etwa eine Anfrage je Eingang plus wenige für den Bezugspunkt,
 
 ### Grenzen
 
-- **Umkreis:** Eingänge über 1,5 km vom Abschnitt entfernt werden nicht geprüft. Reichen Treffer nahe
-  an diese Grenze, weist das Ergebnis darauf hin.
-- **Vorzeitiges Ende:** Die Eingänge werden von nah nach fern geprüft. Nach 400 erreichbaren in Folge
-  endet die Suche mit einem Hinweis. Ein weit entfernter abgeschnittener Bereich kann dabei fehlen.
+- **Umkreis (ohne Gebiet):** Eingänge über 1,5 km vom Abschnitt entfernt werden nicht geprüft. Reichen
+  Treffer nahe an diese Grenze, weist das Ergebnis darauf hin.
+- **Vorzeitiges Ende (ohne Gebiet):** Die Eingänge werden von nah nach fern geprüft. Nach 400 erreichbaren
+  in Folge endet die Suche mit einem Hinweis. Ein weit entfernter abgeschnittener Bereich kann dabei fehlen.
 - **Enden des Abschnitts:** Ein Eingang, der höchstens etwa 1 m vor einem Segmentende einrastet, kann
   als frei gelten. Ein Eingang genau am Ende oder dahinter ist frei, wenn er in die andere Richtung
   hinausführt.
@@ -271,6 +293,11 @@ Berechnung aus den OSM-Daten: 13 einzelne Abschnitte, 6 T-Formen, 4 Abschnitte m
 4 Kontrollen mit Wegen drumherum. Drei Abweichungen betrafen Eingänge am Ende eines Abschnitts; dort
 bestätigten direkte Anfragen das Werkzeug.
 
-Nicht geprüft: die anderen drei Profile, ländliche Gegenden, das vorzeitige Ende der Suche, der Klick auf einen
-Listeneintrag, das Öffnen der
+Das Gebiet wurde mit gezeichneten Polygonen gegen eine unabhängige Geometrieberechnung mit shapely geprüft:
+Rechteck, L-Form, Kerbe bis in eine Parzelle, zu kleines Gebiet, Gebiet ohne Parzellen und L-Form um eine T-Form.
+Alle stimmten überein. Ein großes Gebiet (rund 5,8 km breit und hoch, 358 Eingänge) prüfte auch Eingänge jenseits
+des Umkreises.
+
+Nicht geprüft: die anderen drei Profile, ländliche Gegenden, das vorzeitige Ende der Suche, ein Gebiet mit mehr als
+400 Eingängen, das Zeichnen mit dem Finger, der Klick auf einen Listeneintrag, das Öffnen der
 CSV-Datei in Excel selbst (nur LibreOffice) und ein echtes Handy (nur Emulation).

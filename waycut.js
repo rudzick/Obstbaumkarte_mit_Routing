@@ -12,9 +12,11 @@ import VectorSource from 'ol/source/Vector';
 import MVT from 'ol/format/MVT.js';
 import {Vector as VectorLayer} from 'ol/layer';
 import {Control} from 'ol/control';
+import Draw from 'ol/interaction/Draw';
+import DoubleClickZoom from 'ol/interaction/DoubleClickZoom';
 import {Style, Stroke, Circle, Fill} from 'ol/style';
 import {fromLonLat, toLonLat} from 'ol/proj';
-import {boundingExtent, buffer, containsExtent, createEmpty, extend, getCenter} from 'ol/extent';
+import {boundingExtent, buffer, containsExtent, createEmpty, extend, getCenter, getHeight, getWidth} from 'ol/extent';
 import {GRAPHHOPPER_URL, PROFILES, formatDistance} from './routing.js';
 import {plotListCsv} from './plotlist.js';
 
@@ -27,6 +29,8 @@ const MAX_SECTION_LENGTH = 3000;       // m, alle Zweige zusammen
 const BRANCH_SNAP_DISTANCE = 15;       // m; so nah am Abschnitt setzt ein Zweig an ihm an
 const SEARCH_RADIUS = 1500;            // m um den Abschnitt
 const REFERENCE_DISTANCE = 3000;       // m; dorthin muss ein Eingang gelangen können
+const MAX_AREA_SIZE = 6000;            // m; größte Breite und Höhe eines gezeichneten Gebiets
+const AREA_ENTRANCE_MARGIN = 20;       // m; Eingänge am Rand des Gebiets noch mit laden
 const PARALLEL_REQUESTS = 6;
 const STOP_AFTER_REACHABLE = 400;      // so viele erreichbare Eingänge in Folge beenden die Suche
 const TILE_ZOOM = 16;
@@ -41,6 +45,10 @@ const markerStyle = (color) => new Style({
 });
 const beginStyle = markerStyle('#2a9d3a');
 const waypointStyle = markerStyle('#f08c00');
+const areaStyle = new Style({
+    stroke: new Stroke({color: '#0b62d6', width: 2, lineDash: [8, 6]}),
+    fill: new Fill({color: 'rgba(11,98,214,0.06)'}),
+});
 const endStyle = markerStyle('#d62828');
 const sectionStyle = [
     new Style({stroke: new Stroke({color: 'rgba(255,255,255,0.9)', width: 9}), zIndex: 1}),
@@ -85,8 +93,68 @@ function checkBox(point) {
     ]];
 }
 
+function segmentsTouch(a, b, c, d) {
+    const side = (p, q, r) => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
+    const between = (p, q, r) => Math.min(p[0], q[0]) <= r[0] && r[0] <= Math.max(p[0], q[0])
+	&& Math.min(p[1], q[1]) <= r[1] && r[1] <= Math.max(p[1], q[1]);
+    const [s1, s2, s3, s4] = [side(a, b, c), side(a, b, d), side(c, d, a), side(c, d, b)];
+    if (s1 !== s2 && s3 !== s4) return true;
+    return (s1 === 0 && between(a, b, c)) || (s2 === 0 && between(a, b, d))
+	|| (s3 === 0 && between(c, d, a)) || (s4 === 0 && between(c, d, b));
+}
+
+// Liegt die Parzelle ganz im Gebiet? Dafür müssen alle ihre Punkte darin liegen, und die
+// Gebietsgrenze darf sie nirgends schneiden: Eine Ecke des Gebiets kann in eine Parzelle
+// hineinragen, ohne dass einer ihrer Punkte draußen liegt.
+function plotInsideArea(plot, area) {
+    if (!containsExtent(area.getExtent(), plot.extent)) return false;
+    const boundary = area.getLinearRing(0).getCoordinates();
+    return plot.parts.every((part) => {
+	const flat = part.getFlatCoordinates();
+	let start = 0;
+	return part.getEnds().flat().every((end) => {
+	    for (let i = start; i < end; i += 2) {
+		if (!area.intersectsCoordinate([flat[i], flat[i + 1]])) return false;
+		if (i + 2 < end) {
+		    const a = [flat[i], flat[i + 1]], b = [flat[i + 2], flat[i + 3]];
+		    for (let k = 0; k + 1 < boundary.length; k++) {
+			if (segmentsTouch(a, b, boundary[k], boundary[k + 1])) return false;
+		    }
+		}
+	    }
+	    start = end;
+	    return true;
+	});
+    });
+}
+
 function naturalCompare(a, b) {
     return a.localeCompare(b, 'de', {numeric: true, sensitivity: 'base'});
+}
+
+// Setzt die über Kacheln verteilten Parzellen zusammen und ordnet ihnen die Eingänge zu.
+function collectPlots(plotFeatures, entrances) {
+    const plotsById = {};
+    plotFeatures.forEach((feature) => {
+	const id = feature.get('way_id');
+	if (!plotsById[id]) {
+	    plotsById[id] = {id: id, ref: feature.get('ref') || '', extent: createEmpty(), parts: [], entrances: []};
+	}
+	extend(plotsById[id].extent, feature.getExtent());
+	plotsById[id].parts.push(feature);
+    });
+    // Eingänge liegen auf der Parzellengrenze; Spielraum wegen der Kachelauflösung
+    const plots = Object.values(plotsById);
+    const withoutPlot = [];
+    entrances.forEach((entrance) => {
+	const point = [...entrance.coordinate, ...entrance.coordinate];
+	entrance.refs.forEach((ref) => {
+	    const plot = plots.find((candidate) => candidate.ref === ref
+		&& containsExtent(buffer(candidate.extent, 5), point));
+	    if (plot) plot.entrances.push(entrance); else withoutPlot.push({ref: ref, entrance: entrance});
+	});
+    });
+    return {plots, withoutPlot};
 }
 
 class WayCutPanel extends Control {
@@ -108,6 +176,10 @@ class WayCutPanel extends Control {
 	    <button type="button" class="waycut-undo" disabled title="Letzten Punkt entfernen">Zurück</button>
 	    <button type="button" class="waycut-new" disabled title="Ganzen Abschnitt entfernen">Neu</button>
 	  </div>
+	  <div class="waycut-actions">
+	    <button type="button" class="waycut-area" title="Nur Parzellen ganz in diesem Gebiet prüfen">Gebiet zeichnen</button>
+	    <button type="button" class="waycut-area-clear" disabled title="Gebiet entfernen, wieder den ganzen Umkreis prüfen">Gebiet löschen</button>
+	  </div>
 	  <button type="button" class="routing-go waycut-go" disabled>Parzellen suchen</button>
 	  <div class="routing-status waycut-status"></div>
 	  <button type="button" class="routing-go waycut-export" hidden>Liste für Excel speichern</button>
@@ -127,6 +199,8 @@ class WayCutPanel extends Control {
 	this.branchButton = element.querySelector('.waycut-branch');
 	this.undoButton = element.querySelector('.waycut-undo');
 	this.newButton = element.querySelector('.waycut-new');
+	this.areaButton = element.querySelector('.waycut-area');
+	this.areaClearButton = element.querySelector('.waycut-area-clear');
 
 	// Zweige des Abschnitts: {points: [[lon, lat]…], legs: [{coordinates, distance}…]};
 	// legs[i] ist die Route von points[i] nach points[i + 1]
@@ -137,6 +211,11 @@ class WayCutPanel extends Control {
 	this.run = null;               // AbortController der laufenden Suche
 	this.source = new VectorSource();
 	this.layer = new VectorLayer({source: this.source, name: 'wegabschnitt', zIndex: 11});
+	// optionales Gebiet, auf das sich die Suche beschränkt
+	this.areaSource = new VectorSource();
+	this.areaLayer = new VectorLayer({source: this.areaSource, name: 'wegabschnitt-gebiet', style: areaStyle, zIndex: 9});
+	this.draw = null;              // Zeichenwerkzeug, solange gezeichnet wird
+	this.ignoreClicks = false;     // Klicks gehören gerade zum Zeichnen
 
 	element.querySelector('.routing-close').addEventListener('click', () => this.close());
 	this.goButton.addEventListener('click', () => this.run ? this.stop() : this.search());
@@ -145,7 +224,16 @@ class WayCutPanel extends Control {
 	    this.startBranch = true;
 	    this.updateControls();
 	});
-	this.undoButton.addEventListener('click', () => this.enqueue(() => this.undo()));
+	this.undoButton.addEventListener('click', () => {
+	    if (this.draw) this.draw.removeLastPoint(); else this.enqueue(() => this.undo());
+	});
+	this.areaButton.addEventListener('click', () => this.draw ? this.cancelDraw() : this.startDraw());
+	this.areaClearButton.addEventListener('click', () => {
+	    this.areaSource.clear();
+	    this.clearResults();
+	    this.showLength();
+	    this.updateControls();
+	});
 	this.newButton.addEventListener('click', () => this.reset());
 	this.profileSelect.addEventListener('change', () => this.enqueue(() => this.recalculate()));
 	this.updateControls();
@@ -154,9 +242,10 @@ class WayCutPanel extends Control {
     setMap(map) {
 	super.setMap(map);
 	if (!map) return;
+	map.addLayer(this.areaLayer);
 	map.addLayer(this.layer);
 	map.on('singleclick', (event) => {
-	    if (!this.element.hidden) this.enqueue(() => this.addPoint(toLonLat(event.coordinate)));
+	    if (!this.element.hidden && !this.ignoreClicks) this.enqueue(() => this.addPoint(toLonLat(event.coordinate)));
 	});
     }
 
@@ -175,7 +264,50 @@ class WayCutPanel extends Control {
 
     close() {
 	this.element.hidden = true;
+	this.cancelDraw();
+	this.areaSource.clear();
 	this.reset();
+    }
+
+    get area() {
+	const feature = this.areaSource.getFeatures()[0];
+	return feature ? feature.getGeometry() : null;
+    }
+
+    setDoubleClickZoom(active) {
+	this.getMap().getInteractions().forEach((interaction) => {
+	    if (interaction instanceof DoubleClickZoom) interaction.setActive(active);
+	});
+    }
+
+    startDraw() {
+	this.stop();
+	const draw = new Draw({source: this.areaSource, type: 'Polygon'});
+	draw.on('drawend', () => {
+	    // das neue Gebiet ersetzt ein altes; das Werkzeug fügt es danach selbst ein
+	    this.areaSource.clear();
+	    this.clearResults();
+	    this.showLength();
+	    // Das Abschlussklicken meldet die Karte gleich noch als Klick, und ein Doppelklick
+	    // würde zoomen. Beides soll das Zeichnen nicht auslösen, also erst danach aufräumen.
+	    setTimeout(() => {
+		if (this.draw === draw) this.cancelDraw();
+	    }, 350);
+	});
+	this.draw = draw;
+	this.ignoreClicks = true;
+	this.setDoubleClickZoom(false);
+	this.getMap().addInteraction(draw);
+	this.updateControls();
+    }
+
+    cancelDraw() {
+	if (!this.draw) return;
+	this.getMap().removeInteraction(this.draw);
+	this.draw = null;
+	this.ignoreClicks = false;
+	this.setDoubleClickZoom(true);
+	this.updateControls();
     }
 
     reset() {
@@ -227,16 +359,20 @@ class WayCutPanel extends Control {
 	const hasPoints = this.branches.length > 0;
 	const hasLegs = this.legs.length > 0;
 	const last = this.branches[this.branches.length - 1];
-	this.hint.textContent = this.startBranch ? 'Anfang des Zweigs anklicken, zum Beispiel die Einmündung.'
+	const areaNote = this.area ? ' Geprüft werden nur Parzellen ganz im gezeichneten Gebiet.' : '';
+	this.hint.textContent = this.draw ? 'Ecken des Gebiets anklicken; Doppelklick oder Klick auf den ersten Punkt schließt es ab.'
+	    : (this.startBranch ? 'Anfang des Zweigs anklicken, zum Beispiel die Einmündung.'
 	    : !hasPoints ? 'Anfang des Abschnitts in der Karte anklicken.'
 	    : last.points.length === 1 ? 'Nächsten Punkt in der Karte anklicken.'
-	    : 'Weitere Klicks verlängern den Abschnitt. „Neuer Zweig“ beginnt eine Abzweigung.';
+	    : 'Weitere Klicks verlängern den Abschnitt. „Neuer Zweig“ beginnt eine Abzweigung.') + areaNote;
 	this.goButton.textContent = this.run ? 'Suche abbrechen' : 'Parzellen suchen';
-	this.goButton.disabled = !hasLegs;
-	this.branchButton.disabled = !hasLegs;
+	this.goButton.disabled = !hasLegs || Boolean(this.draw);
+	this.branchButton.disabled = !hasLegs || Boolean(this.draw);
+	this.areaButton.textContent = this.draw ? 'Zeichnen abbrechen' : 'Gebiet zeichnen';
+	this.areaClearButton.disabled = !this.area || Boolean(this.draw);
 	this.branchButton.classList.toggle('waycut-armed', this.startBranch);
-	this.undoButton.disabled = !hasPoints;
-	this.newButton.disabled = !hasPoints;
+	this.undoButton.disabled = !hasPoints && !this.draw;
+	this.newButton.disabled = !hasPoints || Boolean(this.draw);
     }
 
     enqueue(task) {
@@ -478,11 +614,19 @@ class WayCutPanel extends Control {
 	    }]},
 	};
 
-	this.status.textContent = 'Lade Parzellen …';
+	const area = this.area;
 	const coordinates = this.sectionCoordinates;
-	const sectionExtent = boundingExtent(coordinates.map((c) => fromLonLat(c)));
 	const lat = coordinates[0][1];
-	const extent = buffer(sectionExtent, SEARCH_RADIUS / Math.cos(lat * Math.PI / 180));
+	const metersFactor = Math.cos(lat * Math.PI / 180);  // Karteneinheiten in Meter
+	if (area && Math.max(getWidth(area.getExtent()), getHeight(area.getExtent())) * metersFactor > MAX_AREA_SIZE) {
+	    this.status.textContent = 'Das Gebiet ist zu groß (höchstens ' + formatDistance(MAX_AREA_SIZE) + ' breit und hoch).';
+	    return;
+	}
+
+	this.status.textContent = 'Lade Parzellen …';
+	const extent = area
+	    ? buffer(area.getExtent(), AREA_ENTRANCE_MARGIN / metersFactor)
+	    : buffer(boundingExtent(coordinates.map((c) => fromLonLat(c))), SEARCH_RADIUS / metersFactor);
 	const [entranceFeatures, plotFeatures] = await Promise.all([
 	    this.loadTiles('parzelleneingaenge', extent, signal),
 	    this.loadTiles('parzellengrenzen', extent, signal),
@@ -505,11 +649,26 @@ class WayCutPanel extends Control {
 		answer: null,
 	    };
 	});
-	const entrances = Object.values(entrancesById)
-	    .filter((entrance) => entrance.distance <= SEARCH_RADIUS)
+	let entrances = Object.values(entrancesById)
+	    .filter((entrance) => area || entrance.distance <= SEARCH_RADIUS)
 	    .sort((a, b) => a.distance - b.distance);
+	let {plots, withoutPlot} = collectPlots(plotFeatures, entrances);
+
+	// Mit Gebiet zählen nur Parzellen ganz darin, dafür ohne Umkreis und vorzeitiges Ende
+	if (area) {
+	    plots = plots.filter((plot) => plotInsideArea(plot, area));
+	    withoutPlot = [];
+	    const inArea = new Set(plots.flatMap((plot) => plot.entrances));
+	    entrances = entrances.filter((entrance) => inArea.has(entrance));
+	    if (plots.length === 0) {
+		this.status.textContent = 'Im Gebiet liegt keine Parzelle vollständig.';
+		return;
+	    }
+	}
 	if (entrances.length === 0) {
-	    this.status.textContent = 'Im Umkreis von ' + formatDistance(SEARCH_RADIUS) + ' gibt es keine Parzelleneingänge.';
+	    this.status.textContent = area
+		? 'Die ' + plots.length + ' Parzellen im Gebiet haben keine Eingänge.'
+		: 'Im Umkreis von ' + formatDistance(SEARCH_RADIUS) + ' gibt es keine Parzelleneingänge.';
 	    return;
 	}
 
@@ -529,36 +688,16 @@ class WayCutPanel extends Control {
 	    tested += batch.length;
 	    reachableInARow = batch.some((entrance) => entrance.answer === 'via') ? 0 : reachableInARow + batch.length;
 	    this.status.textContent = 'Prüfe Eingänge: ' + tested + ' von ' + entrances.length + ' …';
-	    if (reachableInARow >= STOP_AFTER_REACHABLE) {
+	    if (!area && reachableInARow >= STOP_AFTER_REACHABLE) {
 		stoppedEarly = tested < entrances.length;
 		break;
 	    }
 	}
 
-	this.showResults(entrances, plotFeatures, tested, stoppedEarly);
+	this.showResults(entrances, plots, withoutPlot, tested, stoppedEarly, Boolean(area));
     }
 
-    showResults(entrances, plotFeatures, tested, stoppedEarly) {
-	const plotsById = {};
-	plotFeatures.forEach((feature) => {
-	    const id = feature.get('way_id');
-	    if (!plotsById[id]) {
-		plotsById[id] = {id: id, ref: feature.get('ref') || '', extent: createEmpty(), entrances: []};
-	    }
-	    extend(plotsById[id].extent, feature.getExtent());
-	});
-	// Eingänge liegen auf der Parzellengrenze; Spielraum wegen der Kachelauflösung
-	const plots = Object.values(plotsById);
-	const withoutPlot = [];
-	entrances.forEach((entrance) => {
-	    const point = [...entrance.coordinate, ...entrance.coordinate];
-	    entrance.refs.forEach((ref) => {
-		const plot = plots.find((candidate) => candidate.ref === ref
-		    && containsExtent(buffer(candidate.extent, 5), point));
-		if (plot) plot.entrances.push(entrance); else withoutPlot.push({ref: ref, entrance: entrance});
-	    });
-	});
-
+    showResults(entrances, plots, withoutPlot, tested, stoppedEarly, inArea) {
 	// Eine Parzelle zählt, sobald einer ihrer Eingänge nur über den Abschnitt erreichbar ist;
 	// hervorgehoben werden nur diese Eingänge
 	const found = plots
@@ -590,13 +729,18 @@ class WayCutPanel extends Control {
 		: found.length + ' Parzellen haben Eingänge, die nur über diesen Abschnitt erreichbar sind.',
 	    tested + ' Eingänge geprüft.',
 	];
+	if (inArea) {
+	    const withoutEntrance = plots.filter((plot) => plot.entrances.length === 0).length;
+	    parts.push(plots.length + ' Parzellen liegen ganz im Gebiet'
+		       + (withoutEntrance ? ', ' + withoutEntrance + ' davon ohne Eingang.' : '.'));
+	}
 	if (count('none')) parts.push(count('none') + ' Eingänge haben auch sonst keine Verbindung.');
 	if (count('unknown')) parts.push(count('unknown') + ' Eingänge konnten nicht geprüft werden.');
 	if (stoppedEarly) {
 	    parts.push('Die entfernteren ' + (entrances.length - tested) + ' Eingänge wurden nicht mehr geprüft, weil die letzten '
 		       + STOP_AFTER_REACHABLE + ' alle anders erreichbar waren.');
 	}
-	if (entrances.some((entrance) => entrance.answer === 'via' && entrance.distance > SEARCH_RADIUS * 0.8)) {
+	if (!inArea && entrances.some((entrance) => entrance.answer === 'via' && entrance.distance > SEARCH_RADIUS * 0.8)) {
 	    parts.push('Treffer reichen fast bis an den Suchradius von ' + formatDistance(SEARCH_RADIUS) + '; weiter draußen kann es weitere geben.');
 	}
 	this.status.textContent = parts.join(' ');
