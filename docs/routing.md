@@ -280,6 +280,21 @@ Eine Suche sendet etwa eine Anfrage je Eingang plus wenige für den Bezugspunkt,
 - **Daten:** Das Ergebnis ist nur so vollständig wie die Eingangstabelle, und der Graph ist bis zu einer
   Woche alt.
 
+### Permalink
+
+Auch die Prüfung steht im Link der Adresszeile:
+
+    #map=<zoom>/<x>/<y>/<drehung>&abschnitt=<lat,lon;lat,lon;…>&abschnitt=<…>&gebiet=<lat,lon;lat,lon;…>&profil=<profil>&suche=1
+
+- Jeder Zweig hat ein eigenes `abschnitt`, mit seinen Punkten in der Reihenfolge der Klicks.
+- `gebiet` enthält die Ecken des Gebiets und fehlt, wenn keines gezeichnet ist.
+- `suche=1` steht im Link, sobald eine Suche abgeschlossen ist. Der Link startet sie dann beim Öffnen neu
+  und zeigt die Trefferliste. Ohne `suche=1` zeigt er nur Abschnitt und Gebiet.
+
+Der Link enthält die Punkte, nicht das Ergebnis. Abschnitt und Treffer werden neu berechnet und können sich
+nach einem Update des Graphen oder der Parzellendaten ändern; jedes Öffnen sendet die Anfragen der Suche erneut.
+Ein Link gibt eine Route oder eine Prüfung wieder, nicht beides, weil immer nur ein Panel offen ist.
+
 ### Excel-Export
 
 Die CSV-Datei hat eine Spalte „Parzelle“ und ist UTF-8 mit BOM kodiert. Werte, die Excel umdeuten würde

@@ -8,6 +8,7 @@
 import Feature from 'ol/Feature';
 import Point from 'ol/geom/Point';
 import LineString from 'ol/geom/LineString';
+import Polygon from 'ol/geom/Polygon';
 import VectorSource from 'ol/source/Vector';
 import MVT from 'ol/format/MVT.js';
 import {Vector as VectorLayer} from 'ol/layer';
@@ -188,6 +189,7 @@ class WayCutPanel extends Control {
 
 	this.onOpen = options.onOpen || (() => {});
 	this.onHighlight = options.onHighlight || (() => {});
+	this.onChange = options.onChange || (() => {});  // für den Permalink
 	this.profileSelect = element.querySelector('.waycut-profile');
 	this.hint = element.querySelector('.waycut-hint');
 	this.goButton = element.querySelector('.waycut-go');
@@ -209,10 +211,13 @@ class WayCutPanel extends Control {
 	this.picking = Promise.resolve();  // Klicks der Reihe nach abarbeiten
 	this.generation = 0;           // ändert sich, wenn laufende Routen veraltet sind
 	this.run = null;               // AbortController der laufenden Suche
+	this.searched = false;         // die Ergebnisse passen zum aktuellen Abschnitt
 	this.source = new VectorSource();
 	this.layer = new VectorLayer({source: this.source, name: 'wegabschnitt', zIndex: 11});
 	// optionales Gebiet, auf das sich die Suche beschränkt
 	this.areaSource = new VectorSource();
+	// Das Zeichenwerkzeug fügt das Gebiet erst nach 'drawend' ein
+	this.areaSource.on('addfeature', () => this.onChange());
 	this.areaLayer = new VectorLayer({source: this.areaSource, name: 'wegabschnitt-gebiet', style: areaStyle, zIndex: 9});
 	this.draw = null;              // Zeichenwerkzeug, solange gezeichnet wird
 	this.ignoreClicks = false;     // Klicks gehören gerade zum Zeichnen
@@ -233,6 +238,7 @@ class WayCutPanel extends Control {
 	    this.clearResults();
 	    this.showLength();
 	    this.updateControls();
+	    this.onChange();
 	});
 	this.newButton.addEventListener('click', () => this.reset());
 	this.profileSelect.addEventListener('change', () => this.enqueue(() => this.recalculate()));
@@ -267,6 +273,43 @@ class WayCutPanel extends Control {
 	this.cancelDraw();
 	this.areaSource.clear();
 	this.reset();
+    }
+
+    // Stand für den Permalink, Punkte jeweils [lon, lat]
+    getPermalinkState() {
+	return {
+	    profile: this.profileSelect.value,
+	    branches: this.branches.map((branch) => branch.points),
+	    area: this.area ? this.area.getLinearRing(0).getCoordinates().slice(0, -1).map((c) => toLonLat(c)) : null,
+	    searched: this.searched,
+	};
+    }
+
+    // Stand aus dem Permalink wiederherstellen. Der Link enthält die Punkte, nicht das Ergebnis:
+    // Abschnitt und Treffer werden neu berechnet.
+    setPermalinkState(state) {
+	this.onOpen();
+	this.element.hidden = false;
+	if (PROFILES.some(([id]) => id === state.profile)) this.profileSelect.value = state.profile;
+	this.branches = state.branches.map((points) => ({points: points, legs: []}));
+	this.searched = state.searched;
+	if (state.area && state.area.length >= 3) {
+	    const ring = [...state.area, state.area[0]].map((c) => fromLonLat(c));
+	    this.areaSource.addFeature(new Feature(new Polygon([ring])));
+	}
+	this.updateControls();
+	if (this.branches.length === 0) return;
+	this.enqueue(async () => {
+	    await this.recalculate();
+	    if (this.sectionLength > MAX_SECTION_LENGTH) {
+		const length = this.sectionLength;
+		this.reset();
+		this.status.textContent = 'Der Abschnitt wäre mit ' + formatDistance(length)
+		    + ' zu lang (höchstens ' + formatDistance(MAX_SECTION_LENGTH) + ').';
+	    } else if (state.searched && this.legs.length) {
+		this.search();  // nicht abwarten: Ein Klick in die Karte soll die Suche abbrechen können
+	    }
+	});
     }
 
     get area() {
@@ -318,6 +361,7 @@ class WayCutPanel extends Control {
 	this.source.clear();
 	this.clearResults();
 	this.updateControls();
+	this.onChange();
     }
 
     stop() {
@@ -327,6 +371,7 @@ class WayCutPanel extends Control {
     clearResults() {
 	this.results.replaceChildren();
 	this.status.textContent = '';
+	this.searched = false;
 	this.exportRefs = [];
 	this.exportButton.hidden = true;
 	this.onHighlight(new Set(), new Set());
@@ -398,6 +443,7 @@ class WayCutPanel extends Control {
 	    });
 	});
 	this.updateControls();
+	this.onChange();
     }
 
     showLength() {
@@ -435,6 +481,7 @@ class WayCutPanel extends Control {
 	this.stop();
 	const generation = this.generation;
 	this.clearResults();
+	this.onChange();
 	if (this.startBranch || this.branches.length === 0) {
 	    this.branches.push({points: [this.startBranch ? this.branchStart(lonLat) : lonLat], legs: []});
 	    this.startBranch = false;
@@ -485,6 +532,7 @@ class WayCutPanel extends Control {
     async recalculate() {
 	this.stop();
 	this.clearResults();
+	if (this.branches.some((branch) => branch.points.length > 1)) this.status.textContent = 'Suche den Abschnitt …';
 	const generation = this.generation;
 	try {
 	    for (const branch of this.branches) {
@@ -591,6 +639,7 @@ class WayCutPanel extends Control {
 	this.updateControls();
 	try {
 	    await this.searchPlots(run.signal);
+	    this.searched = !run.signal.aborted;
 	} catch (error) {
 	    if (error.name !== 'AbortError') {
 		this.status.textContent = 'Fehler: ' + error.message;
@@ -600,6 +649,7 @@ class WayCutPanel extends Control {
 	}
 	if (this.run === run) this.run = null;
 	this.updateControls();
+	this.onChange();
     }
 
     async searchPlots(signal) {

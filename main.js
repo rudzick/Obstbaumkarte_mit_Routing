@@ -99,8 +99,19 @@ function normalizePlots(text) {
 	.filter(nr => nr !== '');
 }
 
-function formatLatLon(lonLat) {
-    return lonLat[1].toFixed(5) + ',' + lonLat[0].toFixed(5);
+function formatLatLon(lonLat, digits = 5) {
+    return lonLat[1].toFixed(digits) + ',' + lonLat[0].toFixed(digits);
+}
+
+// Punkte des Wegabschnitts und des Gebiets: 6 Stellen (rund 0,1 m), damit ein Zweig genau
+// am Stützpunkt des Abschnitts ansetzt
+function formatPointList(points) {
+    return points.map(lonLat => formatLatLon(lonLat, 6)).join(';');
+}
+
+function parsePointList(text) {
+    const points = (text || '').split(';').map(parseLatLon);
+    return points.every(point => point) ? points : null;
 }
 
 // "52.47412,13.31233" -> [13.31233, 52.47412]
@@ -126,7 +137,8 @@ var zoom = 17;
 var center = transform([13.31233, 52.47416], 'EPSG:4326', 'EPSG:3857')
 var rotation = 0;
 var marker = 0;
-// Routenpunkte aus dem Permalink (&start=…&via=…&ziel=…&profil=…)
+// Routenpunkte aus dem Permalink (&start=…&via=…&ziel=…&profil=…) oder
+// Wegabschnitt-Prüfung (&abschnitt=…&gebiet=…&profil=…&suche=1)
 var routeParams = new URLSearchParams();
 
 if (window.location.hash !== '') {
@@ -484,6 +496,7 @@ const wayCut = addWayCut(map, {
 	waycut_entrance_ids = entranceIds;
 	refreshPlotHighlight(map);
     },
+    onChange: () => updatePermalink(),
 });
 
 map.on('pointermove', showInfo);
@@ -553,17 +566,41 @@ var updatePermalink = function() {
 	  hash = hash + '&zielparzelle=' + encodeURIComponent(route.endPlot);
       }
   }
+  // Wegabschnitt-Prüfung; ein Zweig je 'abschnitt', suche=1 startet die Suche beim Öffnen wieder
+  var cut = wayCut.getPermalinkState();
+  if (cut.branches.length || cut.area) {
+      cut.branches.forEach(points => {
+	  hash = hash + '&abschnitt=' + formatPointList(points);
+      });
+      if (cut.area) hash = hash + '&gebiet=' + formatPointList(cut.area);
+      hash = hash + '&profil=' + cut.profile;
+      if (cut.searched) hash = hash + '&suche=1';
+  }
   var state = {
     zoom: view.getZoom(),
     center: view.getCenter(),
     rotation: view.getRotation()
   };
-  window.history.pushState(state, 'map', hash);
+  // Nur ein geänderter Link wird ein neuer Eintrag im Verlauf
+  if (window.location.hash === hash) {
+      window.history.replaceState(state, 'map', hash);
+  } else {
+      window.history.pushState(state, 'map', hash);
+  }
 };
 
 map.on('moveend', updatePermalink);
 
-if (['start', 'via', 'ziel'].some(key => routeParams.has(key))) {
+var linkBranches = routeParams.getAll('abschnitt').map(parsePointList).filter(points => points);
+var linkArea = parsePointList(routeParams.get('gebiet'));
+if (linkBranches.length || linkArea) {
+    wayCut.setPermalinkState({
+	profile: routeParams.get('profil'),
+	branches: linkBranches,
+	area: linkArea,
+	searched: routeParams.get('suche') === '1',
+    });
+} else if (['start', 'via', 'ziel'].some(key => routeParams.has(key))) {
     routing.setPermalinkState({
 	profile: routeParams.get('profil'),
 	start: parseLatLon(routeParams.get('start')),
