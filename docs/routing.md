@@ -203,7 +203,10 @@ Abschnitt extrem teuer gemacht wird:
 
 1. **Prüfpunkte:** Auf dem Abschnitt liegen kleine Quadrate (0,5 m Kantenlänge) höchstens rund 20 m
    auseinander, je Segment auch 1 m vor beiden Enden. Genau auf den Stützpunkten liegen sie nicht,
-   denn dort kann ein anderer Weg abzweigen, der sonst mit verteuert würde.
+   denn dort kann ein anderer Weg abzweigen, der sonst mit verteuert würde. Segmente unter 0,75 m
+   bekommen deshalb keinen Prüfpunkt. Der Abschnitt wird mit `way_point_max_distance=0` abgefragt,
+   denn sonst fehlen Knoten auf fast geraden Stücken: Ein Eingang kurz neben einer solchen Abzweigung
+   könnte über sie den Abschnitt verlassen, ohne einen Prüfpunkt zu berühren, und gälte als frei.
 2. **Anfrage:** `POST /route` mit `ch.disable: true` und einem Custom Model, das die Priorität in
    diesen Quadraten mit `0.0000001` multipliziert.
 3. **Bezugspunkt:** Von vier Punkten rund 3 km um den Abschnitt gilt der, der die meisten anderen
@@ -270,13 +273,16 @@ Eine Suche sendet etwa eine Anfrage je Eingang plus wenige für den Bezugspunkt,
   Treffer nahe an diese Grenze, weist das Ergebnis darauf hin.
 - **Vorzeitiges Ende (ohne Gebiet):** Die Eingänge werden von nah nach fern geprüft. Nach 400 erreichbaren
   in Folge endet die Suche mit einem Hinweis. Ein weit entfernter abgeschnittener Bereich kann dabei fehlen.
-- **Enden des Abschnitts:** Ein Eingang, der höchstens etwa 1 m vor einem Segmentende einrastet, kann
-  als frei gelten. Ein Eingang genau am Ende oder dahinter ist frei, wenn er in die andere Richtung
-  hinausführt.
+- **Enden und Knoten:** Ein Eingang, der höchstens etwa 1 m vor einem Segmentende einrastet, kann
+  als frei gelten. Das gilt auch neben einer Abzweigung mitten im Abschnitt. Ein Eingang genau am Ende
+  oder dahinter ist frei, wenn er in die andere Richtung hinausführt.
 - **Überführungen:** Kreuzt ein anderer Weg den Abschnitt ohne gemeinsamen Knoten genau an einem
   Prüfpunkt, wird er mit verteuert. Das ist selten, aber nicht ausgeschlossen.
 - **Abgelegene Gegenden:** Ist kein Bezugspunkt erreichbar, meldet das Werkzeug, dass die Prüfung dort
   nicht möglich ist.
+- **Treppen am Eingang:** Manche Eingänge liegen an kurzen Treppen (`highway=steps`) ohne Verbindung zum
+  Wegenetz, etwa IV/15, IV/24c und IV/27b. Solche kleinen Netze fehlen im Graphen. Der Eingang rastet am
+  nächsten Weg ein und wird wie jeder andere geprüft.
 - **Daten:** Das Ergebnis ist nur so vollständig wie die Eingangstabelle, und der Graph ist bis zu einer
   Woche alt.
 
@@ -307,6 +313,13 @@ Geprüft im November 2026 in Berlin mit dem Profil „Zu Fuß“ gegen eine unab
 Berechnung aus den OSM-Daten: 13 einzelne Abschnitte, 6 T-Formen, 4 Abschnitte mit mehreren Punkten und
 4 Kontrollen mit Wegen drumherum. Drei Abweichungen betrafen Eingänge am Ende eines Abschnitts; dort
 bestätigten direkte Anfragen das Werkzeug.
+
+Diese Prüfung übersah allerdings, dass Knoten auf geraden Stücken fehlten und dadurch Treffer ausblieben.
+Nach der Korrektur wurden 18 Abschnitte in den Kleingärten um den Rüdesheimer Platz (je 229
+Eingänge im Umkreis von 500 m) erneut gegen eine Berechnung aus den OSM-Daten geprüft. Alte und neue
+Abschnittsform unterschieden sich in 6 Abschnitten um zusammen 10 Eingänge, alle zusätzliche Treffer, keiner
+entfiel. Von den 4122 Vergleichen wichen 20 ab: 19 Eingänge höchstens 2 m vom Abschnittsende und ein Eingang
+genau auf einer Kreuzung mit freiem Weg, wo das Werkzeug richtig liegt.
 
 Das Gebiet wurde mit gezeichneten Polygonen gegen eine unabhängige Geometrieberechnung mit shapely geprüft:
 Rechteck, L-Form, Kerbe bis in eine Parzelle, zu kleines Gebiet, Gebiet ohne Parzellen und L-Form um eine T-Form.

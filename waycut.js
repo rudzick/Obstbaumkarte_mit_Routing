@@ -26,6 +26,7 @@ const VIA_SECTION_WEIGHT = 1000000;    // normale Routen im Umkreis bleiben weit
 const MAX_VISITED_NODES = 200000;
 const CHECK_SPACING = 20;              // m; so dicht liegen die Prüfpunkte auf dem Abschnitt
 const CHECK_BOX = 0.25;                // m; halbe Kantenlänge eines Prüfpunkts
+const MIN_SEGMENT_LENGTH = 0.75;       // m; ein Prüfpunkt auf kürzeren Segmenten träfe deren Knoten
 const MAX_SECTION_LENGTH = 3000;       // m, alle Zweige zusammen
 const BRANCH_SNAP_DISTANCE = 15;       // m; so nah am Abschnitt setzt ein Zweig an ihm an
 const SEARCH_RADIUS = 1500;            // m um den Abschnitt
@@ -65,12 +66,14 @@ function distanceMeters(a, b) {
 
 // Prüfpunkte auf den Segmenten. Genau auf deren Enden kann ein anderer Weg abzweigen, der würde
 // mit verteuert, deshalb halten sie 1 m Abstand.
-// So führt jeder Weg von einem Eingang am Abschnitt über einen Prüfpunkt.
+// So führt jeder Weg von einem Eingang am Abschnitt über einen Prüfpunkt. Das setzt voraus, dass
+// alle Knoten des Wegs in den Koordinaten stehen, siehe fetchLeg.
 function checkPoints(coordinates) {
     const points = [];
     for (let i = 0; i + 1 < coordinates.length; i++) {
 	const [a, b] = [coordinates[i], coordinates[i + 1]];
 	const length = distanceMeters(a, b);
+	if (length < MIN_SEGMENT_LENGTH) continue;
 	if (length < 3) {
 	    points.push([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
 	    continue;
@@ -450,10 +453,13 @@ class WayCutPanel extends Control {
 	this.status.textContent = this.legs.length ? 'Abschnitt: ' + formatDistance(this.sectionLength) : '';
     }
 
-    // Die Route zwischen zwei Punkten im Routing-Graphen
+    // Die Route zwischen zwei Punkten im Routing-Graphen. Ohne way_point_max_distance=0 lässt
+    // GraphHopper Knoten auf fast geraden Stücken weg, auch solche, an denen ein Weg abzweigt.
+    // Zwischen zwei Prüfpunkten könnte dann ein Eingang über diese Abzweigung entkommen.
     async fetchLeg(from, to) {
 	const params = new URLSearchParams({
 	    profile: this.profileSelect.value, points_encoded: 'false', instructions: 'false',
+	    way_point_max_distance: '0',
 	});
 	[from, to].forEach((p) => params.append('point', p[1] + ',' + p[0]));
 	const response = await fetch(GRAPHHOPPER_URL + '/route?' + params);
@@ -653,13 +659,18 @@ class WayCutPanel extends Control {
     }
 
     async searchPlots(signal) {
+	const checks = this.legs.flatMap((leg) => checkPoints(leg.coordinates));
+	if (checks.length === 0) {
+	    this.status.textContent = 'Der Abschnitt ist zu kurz für eine Prüfung.';
+	    return;
+	}
 	const customModel = {
 	    priority: [{if: 'in_wegabschnitt', multiply_by: SECTION_PRIORITY}],
 	    areas: {type: 'FeatureCollection', features: [{
 		type: 'Feature', id: 'wegabschnitt', properties: {},
 		geometry: {
 		    type: 'MultiPolygon',
-		    coordinates: this.legs.flatMap((leg) => checkPoints(leg.coordinates)).map(checkBox),
+		    coordinates: checks.map(checkBox),
 		},
 	    }]},
 	};
